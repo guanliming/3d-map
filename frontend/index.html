@@ -677,6 +677,15 @@
                 });
 
                 setTimeout(() => {
+                    toggleBuildingLayer(true);
+                    
+                    const zoom = map.getZoom();
+                    if (zoom < 14) {
+                        showZoomHintForBuildings();
+                    }
+                }, 400);
+
+                setTimeout(() => {
                     pitchHint.classList.add('show');
                     setTimeout(() => {
                         pitchHint.classList.remove('show');
@@ -688,6 +697,8 @@
                 toggleBtn.classList.remove('mode-3d');
                 modeLabel.textContent = '2D 视图';
                 viewControls.classList.remove('show');
+
+                toggleBuildingLayer(false);
 
                 map.easeTo({
                     pitch: 0,
@@ -701,6 +712,20 @@
 
             updateDebugPanel();
             setMapStatus(is3DMode ? '已切换到 3D 视图' : '已切换到 2D 视图', 'ok');
+        }
+
+        function showZoomHintForBuildings() {
+            const hint = document.getElementById('zoomHint');
+            hint.textContent = '放大地图（缩放级别 >= 14）以查看 3D 建筑';
+            hint.classList.remove('hide');
+            
+            if (currentZoomHintTimeout) {
+                clearTimeout(currentZoomHintTimeout);
+            }
+            
+            currentZoomHintTimeout = setTimeout(() => {
+                hint.classList.add('hide');
+            }, 5000);
         }
 
         function setPitch(pitch) {
@@ -796,6 +821,134 @@
             });
 
             log('刷新完成, 可见标记数:', visibleCount);
+        }
+
+        const BUILDING_LAYER_ID = '3d-buildings';
+        const BUILDING_SOURCE_LAYER = 'building';
+
+        function addBuildingLayer() {
+            if (!map) {
+                log('地图尚未初始化，无法添加建筑图层');
+                return;
+            }
+
+            log('开始添加 3D 建筑图层...');
+            
+            const style = map.getStyle();
+            const sources = style.sources;
+            log('地图可用数据源:', Object.keys(sources));
+
+            let sourceId = null;
+            let hasBuildingLayer = false;
+
+            for (const [id, source] of Object.entries(sources)) {
+                log(`检查数据源: ${id}, 类型: ${source.type}`);
+                
+                if (source.type === 'vector') {
+                    sourceId = id;
+                    log(`找到矢量数据源: ${id}`);
+                    break;
+                }
+            }
+
+            if (!sourceId) {
+                log('⚠️ 未找到矢量数据源，无法添加 3D 建筑图层');
+                log('提示: MapTiler 矢量地图需要使用 vector 类型的样式');
+                return;
+            }
+
+            if (map.getLayer(BUILDING_LAYER_ID)) {
+                log('建筑图层已存在，跳过添加');
+                return;
+            }
+
+            const layers = style.layers;
+            let firstSymbolId = null;
+
+            for (const layer of layers) {
+                if (layer.type === 'symbol') {
+                    firstSymbolId = layer.id;
+                    break;
+                }
+            }
+
+            try {
+                map.addLayer({
+                    'id': BUILDING_LAYER_ID,
+                    'source': sourceId,
+                    'source-layer': BUILDING_SOURCE_LAYER,
+                    'type': 'fill-extrusion',
+                    'minzoom': 14,
+                    'filter': ['==', 'extrude', 'true'],
+                    'paint': {
+                        'fill-extrusion-color': {
+                            'property': 'type',
+                            'type': 'categorical',
+                            'stops': [
+                                ['building', '#e8e4df'],
+                                ['apartments', '#d4cfc7'],
+                                ['commercial', '#c9c4bc'],
+                                ['industrial', '#bfb9b1'],
+                                ['residential', '#ddd8d0']
+                            ],
+                            'default': '#e2ddd6'
+                        },
+                        'fill-extrusion-height': [
+                            'interpolate',
+                            ['linear'],
+                            ['zoom'],
+                            14,
+                            0,
+                            14.05,
+                            ['get', 'render_height']
+                        ],
+                        'fill-extrusion-base': [
+                            'interpolate',
+                            ['linear'],
+                            ['zoom'],
+                            14,
+                            0,
+                            14.05,
+                            ['get', 'render_min_height']
+                        ],
+                        'fill-extrusion-opacity': {
+                            'stops': [
+                                [14, 0],
+                                [14.5, 0.9],
+                                [17, 0.95]
+                            ]
+                        }
+                    }
+                }, firstSymbolId);
+
+                log('✓ 3D 建筑图层添加成功!');
+                log('  - 图层 ID:', BUILDING_LAYER_ID);
+                log('  - 数据源:', sourceId);
+                log('  - 源图层:', BUILDING_SOURCE_LAYER);
+                log('  - 最小缩放: 14');
+                log('  - 高度字段: render_height');
+
+                map.setLayoutProperty(BUILDING_LAYER_ID, 'visibility', 'none');
+                log('建筑图层已隐藏（默认 2D 模式）');
+
+            } catch (error) {
+                log('✗ 添加 3D 建筑图层失败:', error);
+                log('提示: 可能是样式中没有 building 图层');
+            }
+        }
+
+        function toggleBuildingLayer(show) {
+            if (!map) return;
+
+            const layer = map.getLayer(BUILDING_LAYER_ID);
+            if (!layer) {
+                log('建筑图层不存在，无法切换显示状态');
+                return;
+            }
+
+            const visibility = show ? 'visible' : 'none';
+            map.setLayoutProperty(BUILDING_LAYER_ID, 'visibility', visibility);
+            log(`建筑图层已${show ? '显示' : '隐藏'}`);
         }
 
         function showError(message) {
@@ -920,6 +1073,10 @@
                     
                     if (!MAPTILER_KEY) {
                         log('📝 使用 OpenStreetMap 作为备用地图');
+                        log('⚠️ OpenStreetMap 栅格地图不支持 3D 建筑图层');
+                    } else {
+                        log('📝 使用 MapTiler 地图，准备添加 3D 建筑图层');
+                        addBuildingLayer();
                     }
                 });
 
