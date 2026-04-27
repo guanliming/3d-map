@@ -183,14 +183,117 @@
         .error-toast.show {
             display: block;
         }
+        .debug-panel {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.85);
+            color: white;
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 12px;
+            z-index: 100;
+            min-width: 240px;
+        }
+        .debug-panel .title {
+            font-weight: bold;
+            margin-bottom: 8px;
+            border-bottom: 1px solid rgba(255,255,255,0.3);
+            padding-bottom: 4px;
+        }
+        .debug-panel .row {
+            display: flex;
+            justify-content: space-between;
+            margin: 4px 0;
+        }
+        .debug-panel .label {
+            color: #a0aec0;
+        }
+        .debug-panel .value {
+            color: #48bb78;
+            font-weight: bold;
+        }
+        .debug-panel .value.warning {
+            color: #ed8936;
+        }
+        .debug-panel .value.error {
+            color: #fc8181;
+        }
+        .debug-panel .value.ok {
+            color: #48bb78;
+        }
+        .toggle-debug-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            z-index: 101;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+        .toggle-debug-btn:hover {
+            background: rgba(0,0,0,0.9);
+        }
+        .debug-panel .section-title {
+            margin-top: 8px;
+            padding-top: 6px;
+            border-top: 1px solid rgba(255,255,255,0.2);
+            color: #cbd5e0;
+            font-size: 11px;
+        }
     </style>
 </head>
 <body class="bg-gray-900">
     <div id="app" class="relative">
         <div id="map"></div>
         
+        <button id="toggleDebugBtn" class="toggle-debug-btn" onclick="toggleDebug()">🔧 调试</button>
+        
+        <div id="debugPanel" class="debug-panel" style="display: none;">
+            <div class="title">📊 调试信息</div>
+            <div class="row">
+                <span class="label">地图状态:</span>
+                <span id="mapStatus" class="value">初始化中...</span>
+            </div>
+            <div class="row">
+                <span class="label">缩放级别:</span>
+                <span id="zoomLevel" class="value">--</span>
+            </div>
+            <div class="row">
+                <span class="label">缩放状态:</span>
+                <span id="zoomStatus" class="value">--</span>
+            </div>
+            <div class="section-title">📍 景点查询参数</div>
+            <div class="row">
+                <span class="label">查询半径:</span>
+                <span id="searchRadius" class="value">-- 公里</span>
+            </div>
+            <div class="row">
+                <span class="label">中心点:</span>
+                <span id="centerCoords" class="value">--</span>
+            </div>
+            <div class="row">
+                <span class="label">景点标记数:</span>
+                <span id="markerCount" class="value">0</span>
+            </div>
+            <div class="section-title">🔧 配置</div>
+            <div class="row">
+                <span class="label">地图源:</span>
+                <span id="mapSource" class="value">--</span>
+            </div>
+            <div class="row">
+                <span class="label">MapTiler Key:</span>
+                <span id="mapTilerKeyStatus" class="value">--</span>
+            </div>
+        </div>
+        
         <div id="zoomHint" class="zoom-hint">
-            放大地图（缩放级别 >= 5）以查看周围景点
+            放大地图（缩放级别 6-12）以查看周围景点
         </div>
         
         <div id="loadingOverlay" class="loading-overlay">
@@ -210,6 +313,12 @@
         let markers = [];
         let currentPanorama = null;
         let currentZoomHintTimeout = null;
+        let debugMode = true;
+        let mapTilerKey = '';
+        let currentRadius = 0;
+
+        const MIN_ZOOM = 6;
+        const MAX_ZOOM = 12;
 
         const OSM_STYLE = {
             version: 8,
@@ -230,50 +339,251 @@
             }]
         };
 
+        function log(message, ...args) {
+            const timestamp = new Date().toISOString().substr(11, 12);
+            console.log(`[${timestamp}] ${message}`, ...args);
+        }
+
+        function calculateRadiusByZoom(zoom) {
+            if (zoom < MIN_ZOOM) return 0;
+            if (zoom > MAX_ZOOM) return 0;
+
+            const RADIUS_CONFIG = [
+                { zoom: 6, minRadius: 500, maxRadius: 800 },
+                { zoom: 7, minRadius: 300, maxRadius: 500 },
+                { zoom: 8, minRadius: 150, maxRadius: 300 },
+                { zoom: 9, minRadius: 80, maxRadius: 150 },
+                { zoom: 10, minRadius: 40, maxRadius: 80 },
+                { zoom: 11, minRadius: 20, maxRadius: 40 },
+                { zoom: 12, minRadius: 10, maxRadius: 20 },
+            ];
+
+            let radius;
+            if (zoom <= 6) {
+                radius = 800;
+            } else if (zoom >= 12) {
+                radius = 10;
+            } else {
+                const zoomFloor = Math.floor(zoom);
+                const zoomCeil = zoomFloor + 1;
+                
+                const configFloor = RADIUS_CONFIG.find(c => c.zoom === zoomFloor);
+                const configCeil = RADIUS_CONFIG.find(c => c.zoom === zoomCeil);
+                
+                if (configFloor && configCeil) {
+                    const t = (zoom - zoomFloor) / (zoomCeil - zoomFloor);
+                    const minRadius = configFloor.minRadius + t * (configCeil.minRadius - configFloor.minRadius);
+                    const maxRadius = configFloor.maxRadius + t * (configCeil.maxRadius - configFloor.maxRadius);
+                    radius = (minRadius + maxRadius) / 2;
+                } else {
+                    radius = 100;
+                }
+            }
+
+            return Math.round(radius);
+        }
+
+        function getRadiusInfo(zoom) {
+            const radius = calculateRadiusByZoom(zoom);
+            
+            let description;
+            if (radius >= 500) {
+                description = '省级范围';
+            } else if (radius >= 200) {
+                description = '大城市圈';
+            } else if (radius >= 100) {
+                description = '城市范围';
+            } else if (radius >= 50) {
+                description = '市区范围';
+            } else if (radius >= 20) {
+                description = '区域范围';
+            } else {
+                description = '街区范围';
+            }
+            
+            return { radius, description };
+        }
+
+        function updateDebugPanel() {
+            if (!debugMode) return;
+            
+            const mapStatusEl = document.getElementById('mapStatus');
+            const zoomLevelEl = document.getElementById('zoomLevel');
+            const zoomStatusEl = document.getElementById('zoomStatus');
+            const centerCoordsEl = document.getElementById('centerCoords');
+            const markerCountEl = document.getElementById('markerCount');
+            const mapSourceEl = document.getElementById('mapSource');
+            const mapTilerKeyStatusEl = document.getElementById('mapTilerKeyStatus');
+            const searchRadiusEl = document.getElementById('searchRadius');
+
+            log(`updateDebugPanel() 被调用 - mapTilerKey='${mapTilerKey ? mapTilerKey.substring(0, 10) + '...' : '(空)'}', map=${!!map}`);
+
+            if (map) {
+                const zoom = map.getZoom();
+                const center = map.getCenter();
+                const radiusInfo = getRadiusInfo(zoom);
+                
+                zoomLevelEl.textContent = zoom.toFixed(2);
+                zoomLevelEl.className = (zoom >= MIN_ZOOM && zoom <= MAX_ZOOM) ? 'value ok' : 'value warning';
+                
+                if (zoom < MIN_ZOOM) {
+                    zoomStatusEl.textContent = `过低 (<${MIN_ZOOM})`;
+                    zoomStatusEl.className = 'value warning';
+                } else if (zoom > MAX_ZOOM) {
+                    zoomStatusEl.textContent = `过高 (>${MAX_ZOOM})`;
+                    zoomStatusEl.className = 'value warning';
+                } else {
+                    zoomStatusEl.textContent = `正常 (${MIN_ZOOM}-${MAX_ZOOM})`;
+                    zoomStatusEl.className = 'value ok';
+                }
+                
+                if (radiusInfo.radius > 0) {
+                    searchRadiusEl.textContent = `${radiusInfo.radius} 公里 (${radiusInfo.description})`;
+                    searchRadiusEl.className = 'value ok';
+                } else {
+                    searchRadiusEl.textContent = '范围外';
+                    searchRadiusEl.className = 'value warning';
+                }
+                
+                centerCoordsEl.textContent = `${center.lat.toFixed(4)}, ${center.lng.toFixed(4)}`;
+                centerCoordsEl.className = 'value';
+            }
+            
+            markerCountEl.textContent = markers.length;
+            markerCountEl.className = markers.length > 0 ? 'value ok' : 'value';
+            
+            log(`  更新调试面板: mapTilerKey='${mapTilerKey ? '有值' : '空}'}`);
+            
+            if (mapTilerKey) {
+                log(`  Key 长度: ${mapTilerKey.length}`);
+                mapSourceEl.textContent = 'MapTiler';
+                mapSourceEl.className = 'value ok';
+                mapTilerKeyStatusEl.textContent = '已配置';
+                mapTilerKeyStatusEl.className = 'value ok';
+            } else {
+                log(`  Key 为空`);
+                mapSourceEl.textContent = 'OpenStreetMap';
+                mapSourceEl.className = 'value';
+                mapTilerKeyStatusEl.textContent = '未配置';
+                mapTilerKeyStatusEl.className = 'value warning';
+            }
+            
+            log(`  更新后 - 地图源: ${mapSourceEl.textContent}, Key状态: ${mapTilerKeyStatusEl.textContent}`);
+        }
+
+        function setMapStatus(status, type = 'ok') {
+            const mapStatusEl = document.getElementById('mapStatus');
+            mapStatusEl.textContent = status;
+            if (type === 'error') {
+                mapStatusEl.className = 'value error';
+            } else if (type === 'warning') {
+                mapStatusEl.className = 'value warning';
+            } else {
+                mapStatusEl.className = 'value ok';
+            }
+        }
+
+        function toggleDebug() {
+            debugMode = !debugMode;
+            const panel = document.getElementById('debugPanel');
+            const btn = document.getElementById('toggleDebugBtn');
+            if (debugMode) {
+                panel.style.display = 'block';
+                btn.textContent = '🔧 隐藏调试';
+                updateDebugPanel();
+            } else {
+                panel.style.display = 'none';
+                btn.textContent = '🔧 调试';
+            }
+        }
+
         function showError(message) {
+            log('ERROR:', message);
+            setMapStatus('错误', 'error');
             const toast = document.getElementById('errorToast');
             toast.textContent = message;
             toast.classList.add('show');
             setTimeout(() => {
                 toast.classList.remove('show');
-            }, 5000);
+            }, 8000);
         }
 
         async function loadConfig() {
             try {
-                console.log('Loading config from /api/config...');
+                log('正在从 /api/config 加载配置...');
+                setMapStatus('加载配置...');
+                
                 const response = await fetch('/api/config');
                 if (!response.ok) {
-                    console.error('Config API returned status:', response.status);
+                    log('配置 API 返回状态:', response.status);
+                    setMapStatus('配置加载失败', 'warning');
                     return { maptiler_key: '' };
                 }
+                
                 const config = await response.json();
-                console.log('Config loaded:', { hasKey: !!config.maptiler_key, keyLength: config.maptiler_key?.length || 0 });
+                mapTilerKey = config.maptiler_key || '';
+                
+                log('API 响应完整数据:', JSON.stringify(config, null, 2));
+                
+                if (config.debug_info) {
+                    log('后端调试信息:');
+                    log('  - .env 文件找到:', config.debug_info.env_file_found);
+                    log('  - .env 文件读取成功:', config.debug_info.env_file_read);
+                    log('  - 在文件中找到 Key:', config.debug_info.key_found_in_file);
+                    log('  - 最终 Key 已配置:', config.debug_info.key_configured);
+                    log('  - Key 长度:', config.debug_info.key_length);
+                    log('  - .env 文件路径:', config.debug_info.env_path);
+                }
+                
+                log('前端配置加载完成:', { 
+                    hasKey: !!mapTilerKey, 
+                    keyLength: mapTilerKey ? mapTilerKey.length : 0,
+                    keyPreview: mapTilerKey ? (mapTilerKey.substring(0, 10) + '...') : 'none'
+                });
+                
+                updateDebugPanel();
                 return config;
             } catch (error) {
-                console.error('Failed to load config:', error);
-                showError('无法加载配置，将使用备用地图源');
+                log('加载配置失败:', error);
+                showError('无法加载配置，将使用 OpenStreetMap 备用地图');
                 return { maptiler_key: '' };
             }
         }
 
         async function initMap() {
-            console.log('Starting map initialization...');
+            log('='.repeat(50));
+            log('开始初始化地图...');
+            log('='.repeat(50));
+            log(`景点显示范围: 缩放级别 ${MIN_ZOOM} - ${MAX_ZOOM}`);
+            log('='.repeat(50));
+            
+            setMapStatus('正在初始化...');
             
             const config = await loadConfig();
             const MAPTILER_KEY = config.maptiler_key || '';
             
             let style;
+            let styleName;
+            
             if (MAPTILER_KEY) {
-                console.log('Using MapTiler with key');
+                log('使用 MapTiler 地图源');
                 style = `https://api.maptiler.com/maps/basic-v2/style.json?key=${MAPTILER_KEY}`;
+                styleName = 'MapTiler';
+                setMapStatus('加载 MapTiler 地图...');
             } else {
-                console.log('No MapTiler key, using OpenStreetMap fallback');
+                log('没有 MapTiler Key，使用 OpenStreetMap 备用地图');
                 style = OSM_STYLE;
+                styleName = 'OpenStreetMap';
+                setMapStatus('加载 OpenStreetMap 地图...');
             }
 
             try {
-                console.log('Creating map instance...');
+                log('创建地图实例...');
+                log('地图初始配置:');
+                log('  - 中心: 116.4074, 39.9042 (北京)');
+                log('  - 初始缩放: 10');
+                log('  - 地图源:', styleName);
+                
                 map = new maplibregl.Map({
                     container: 'map',
                     style: style,
@@ -281,55 +591,94 @@
                     zoom: 10,
                     pitch: 0,
                     bearing: 0,
-                    failIfMajorPerformanceCaveat: false
+                    failIfMajorPerformanceCaveat: false,
+                    preserveDrawingBuffer: true
                 });
 
                 map.addControl(new maplibregl.NavigationControl(), 'top-right');
+                log('✓ 添加导航控件');
+                
                 map.addControl(new maplibregl.GeolocateControl({
                     positionOptions: { enableHighAccuracy: true },
                     trackUserLocation: true
                 }), 'top-right');
+                log('✓ 添加定位控件');
+                
                 map.addControl(new maplibregl.FullscreenControl(), 'top-right');
+                log('✓ 添加全屏控件');
+                
                 map.addControl(new maplibregl.ScaleControl(), 'bottom-left');
+                log('✓ 添加比例尺控件');
 
                 map.on('load', () => {
-                    console.log('Map loaded successfully!');
+                    log('✓ 地图加载完成!');
+                    log('  - 当前缩放:', map.getZoom());
+                    log('  - 当前中心:', map.getCenter());
+                    setMapStatus('已加载', 'ok');
+                    updateDebugPanel();
+                    
                     if (!MAPTILER_KEY) {
-                        console.log('Using OpenStreetMap as fallback');
+                        log('📝 使用 OpenStreetMap 作为备用地图');
                     }
                 });
 
                 map.on('error', (e) => {
-                    console.error('Map error:', e);
-                    if (MAPTILER_KEY && !map.style.sourceCaches['osm']) {
-                        console.log('MapTiler failed, switching to OSM fallback...');
-                        map.setStyle(OSM_STYLE);
-                        showError('地图服务加载失败，已切换到备用地图');
+                    log('✗ 地图错误:', e);
+                    
+                    if (MAPTILER_KEY) {
+                        log('尝试切换到 OpenStreetMap 备用地图...');
+                        try {
+                            map.setStyle(OSM_STYLE);
+                            mapTilerKey = '';
+                            setMapStatus('已切换到 OSM', 'warning');
+                            updateDebugPanel();
+                            showError('MapTiler 加载失败，已切换到 OpenStreetMap 备用地图');
+                        } catch (switchError) {
+                            log('切换地图失败:', switchError);
+                            setMapStatus('地图加载失败', 'error');
+                        }
+                    } else {
+                        setMapStatus('地图错误', 'error');
+                        showError('地图加载出错: ' + (e.error ? e.error.message : '未知错误'));
                     }
                 });
 
                 map.on('styledata', () => {
-                    console.log('Style data loaded');
+                    log('样式数据已加载');
+                    updateDebugPanel();
                 });
 
                 map.on('sourcedata', (e) => {
                     if (e.isSourceLoaded) {
-                        console.log('Source loaded:', e.sourceId);
+                        log('数据源已加载:', e.sourceId);
                     }
                 });
 
-                map.on('moveend', debounce(handleMapMoveEnd, 300));
+                map.on('moveend', debounce(() => {
+                    log('地图移动结束');
+                    handleMapMoveEnd();
+                }, 300));
                 
                 map.on('zoom', () => {
                     const zoom = map.getZoom();
-                    console.log('Zoom level:', zoom);
-                    if (zoom < 5) {
+                    const radiusInfo = getRadiusInfo(zoom);
+                    log('缩放级别改变:', zoom.toFixed(2), `-> 查询半径: ${radiusInfo.radius} 公里`);
+                    updateDebugPanel();
+                    
+                    if (zoom < MIN_ZOOM) {
                         showZoomHint();
                     }
                 });
+                
+                map.on('move', () => {
+                    updateDebugPanel();
+                });
+
+                updateDebugPanel();
 
             } catch (error) {
-                console.error('Failed to initialize map:', error);
+                log('✗ 初始化地图失败:', error);
+                setMapStatus('初始化失败', 'error');
                 showError('地图初始化失败: ' + error.message);
             }
         }
@@ -344,26 +693,36 @@
             
             currentZoomHintTimeout = setTimeout(() => {
                 hint.classList.add('hide');
-            }, 3000);
+            }, 5000);
         }
 
         function handleMapMoveEnd() {
             if (!map) {
-                console.warn('Map not initialized yet');
+                log('警告: 地图尚未初始化');
                 return;
             }
             
             const zoom = map.getZoom();
-            console.log('Map moved, zoom:', zoom);
+            log('处理地图移动事件, 缩放级别:', zoom.toFixed(2));
             
-            if (zoom < 5) {
+            if (zoom < MIN_ZOOM || zoom > MAX_ZOOM) {
+                log(`缩放级别不在显示范围内 (${MIN_ZOOM}-${MAX_ZOOM}), 清除标记`);
                 clearMarkers();
-                showZoomHint();
-            } else if (zoom >= 5 && zoom <= 18) {
+                if (zoom < MIN_ZOOM) {
+                    showZoomHint();
+                }
+            } else {
                 const center = map.getCenter();
-                console.log('Map center:', { lat: center.lat, lng: center.lng });
-                loadScenicSpots(center.lat, center.lng);
+                const radius = calculateRadiusByZoom(zoom);
+                
+                log(`缩放级别在范围内 (${MIN_ZOOM}-${MAX_ZOOM}), 加载景点`);
+                log(`  - 中心坐标: ${center.lat.toFixed(4)}, ${center.lng.toFixed(4)}`);
+                log(`  - 查询半径: ${radius} 公里`);
+                
+                loadScenicSpots(center.lat, center.lng, radius);
             }
+            
+            updateDebugPanel();
         }
 
         function debounce(func, wait) {
@@ -378,39 +737,55 @@
             };
         }
 
-        async function loadScenicSpots(lat, lon) {
-            console.log('Loading scenic spots at:', { lat, lon });
+        async function loadScenicSpots(lat, lon, radius) {
+            log('='.repeat(40));
+            log('加载景点数据');
+            log('='.repeat(40));
+            log('参数:');
+            log('  - 纬度:', lat);
+            log('  - 经度:', lon);
+            log('  - 半径:', radius, '公里');
+            
+            currentRadius = radius;
             showLoading();
             
             try {
-                const url = `/api/scenic_spots?lat=${lat}&lon=${lon}&radius=100`;
-                console.log('Fetching:', url);
+                const url = `/api/scenic_spots?lat=${lat}&lon=${lon}&radius=${radius}`;
+                log('请求 URL:', url);
                 
                 const response = await fetch(url);
+                log('响应状态:', response.status);
+                
                 if (!response.ok) {
-                    console.error('API returned status:', response.status);
-                    throw new Error('API请求失败');
+                    log('✗ API 请求失败, 状态:', response.status);
+                    throw new Error(`API 请求失败 (状态: ${response.status})`);
                 }
                 
                 const data = await response.json();
-                console.log('API response:', data);
+                log('✓ API 响应:');
+                log('  - 总数:', data.total);
+                log('  - 景点列表:', data.spots ? data.spots.map(s => s.name) : '无数据');
                 
                 clearMarkers();
                 
                 if (data.spots && data.spots.length > 0) {
-                    data.spots.forEach(spot => {
-                        console.log('Adding marker:', spot.name, 'at', spot.lat, spot.lon);
+                    log('开始添加标记...');
+                    data.spots.forEach((spot, index) => {
+                        log(`  [${index + 1}] ${spot.name} - (${spot.lat}, ${spot.lon}) - 距离: ${spot.distance} km`);
                         addMarker(spot);
                     });
-                    console.log(`Loaded ${data.spots.length} scenic spots`);
+                    log(`✓ 共添加 ${data.spots.length} 个标记`);
+                    setMapStatus(`已加载 ${data.spots.length} 个景点`, 'ok');
                 } else {
-                    console.log('No scenic spots found in this area');
+                    log('当前区域没有找到景点');
+                    setMapStatus('当前区域无景点', 'warning');
                 }
             } catch (error) {
-                console.error('Failed to load scenic spots:', error);
+                log('✗ 加载景点失败:', error);
                 showError('加载景点失败: ' + error.message);
             } finally {
                 hideLoading();
+                updateDebugPanel();
             }
         }
 
@@ -451,16 +826,19 @@
                 .addTo(map);
             
             markers.push(marker);
-            console.log('Marker added to map');
+            log('标记已添加到地图:', spot.name);
+            updateDebugPanel();
         }
 
         function clearMarkers() {
-            console.log('Clearing markers:', markers.length);
+            log('清除标记, 当前数量:', markers.length);
             markers.forEach(marker => marker.remove());
             markers = [];
+            updateDebugPanel();
         }
 
         function openPanorama(lat, lon, name) {
+            log('打开全景:', name, '坐标:', lat, lon);
             const modal = document.getElementById('panoramaModal');
             modal.classList.add('show');
             
@@ -485,6 +863,7 @@
         }
 
         function closePanorama() {
+            log('关闭全景');
             const modal = document.getElementById('panoramaModal');
             modal.classList.remove('show');
             
@@ -504,8 +883,15 @@
 
         window.openPanorama = openPanorama;
         window.closePanorama = closePanorama;
+        window.toggleDebug = toggleDebug;
 
-        console.log('Page loaded, initializing map...');
+        log('页面加载完成，开始初始化地图...');
+        
+        if (debugMode) {
+            document.getElementById('debugPanel').style.display = 'block';
+            document.getElementById('toggleDebugBtn').textContent = '🔧 隐藏调试';
+        }
+        
         initMap();
     </script>
 </body>
