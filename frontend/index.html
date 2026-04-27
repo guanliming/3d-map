@@ -246,11 +246,107 @@
             color: #cbd5e0;
             font-size: 11px;
         }
+        .mode-toggle-btn {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            z-index: 101;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: background 0.2s;
+        }
+        .mode-toggle-btn:hover {
+            background: rgba(0,0,0,0.9);
+        }
+        .mode-toggle-btn .mode-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #48bb78;
+        }
+        .mode-toggle-btn.mode-3d .mode-indicator {
+            background: #667eea;
+        }
+        .pitch-hint {
+            position: absolute;
+            top: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            z-index: 50;
+            display: none;
+        }
+        .pitch-hint.show {
+            display: block;
+        }
+        .view-controls {
+            position: absolute;
+            top: 60px;
+            left: 10px;
+            z-index: 101;
+            background: rgba(0,0,0,0.7);
+            border-radius: 6px;
+            padding: 8px;
+            display: none;
+        }
+        .view-controls.show {
+            display: block;
+        }
+        .view-controls .control-btn {
+            background: rgba(255,255,255,0.1);
+            border: none;
+            color: white;
+            padding: 8px 12px;
+            margin: 4px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: background 0.2s;
+        }
+        .view-controls .control-btn:hover {
+            background: rgba(255,255,255,0.2);
+        }
+        .view-controls .control-btn.active {
+            background: rgba(102, 126, 234, 0.8);
+        }
     </style>
 </head>
 <body class="bg-gray-900">
     <div id="app" class="relative">
         <div id="map"></div>
+        
+        <button id="modeToggleBtn" class="mode-toggle-btn" onclick="toggleViewMode()">
+            <span class="mode-indicator" id="modeIndicator"></span>
+            <span id="modeLabel">2D 视图</span>
+        </button>
+        
+        <div id="viewControls" class="view-controls">
+            <div style="margin-bottom: 4px; color: #a0aec0; font-size: 11px; padding-left: 4px;">俯仰角度</div>
+            <button class="control-btn" onclick="setPitch(0)">平视</button>
+            <button class="control-btn" onclick="setPitch(30)">低角度</button>
+            <button class="control-btn" onclick="setPitch(45)">中角度</button>
+            <button class="control-btn" onclick="setPitch(60)">高角度</button>
+            <div style="margin-top: 8px; margin-bottom: 4px; color: #a0aec0; font-size: 11px; padding-left: 4px;">旋转角度</div>
+            <button class="control-btn" onclick="setBearing(0)">正北</button>
+            <button class="control-btn" onclick="rotateView(-45)">↺ 左转</button>
+            <button class="control-btn" onclick="rotateView(45)">↻ 右转</button>
+        </div>
+        
+        <div id="pitchHint" class="pitch-hint">
+            按住 Ctrl + 鼠标右键拖动可调整视角
+        </div>
         
         <button id="toggleDebugBtn" class="toggle-debug-btn" onclick="toggleDebug()">🔧 调试</button>
         
@@ -290,6 +386,28 @@
                 <span class="label">MapTiler Key:</span>
                 <span id="mapTilerKeyStatus" class="value">--</span>
             </div>
+            <div class="section-title">🗺️ 视图模式</div>
+            <div class="row">
+                <span class="label">显示模式:</span>
+                <span id="viewMode" class="value">--</span>
+            </div>
+            <div class="row">
+                <span class="label">俯仰角度:</span>
+                <span id="pitchAngle" class="value">--</span>
+            </div>
+            <div class="row">
+                <span class="label">旋转角度:</span>
+                <span id="bearingAngle" class="value">--</span>
+            </div>
+            <div class="section-title">📊 性能统计</div>
+            <div class="row">
+                <span class="label">可见标记数:</span>
+                <span id="visibleMarkerCount" class="value">--</span>
+            </div>
+            <div class="row">
+                <span class="label">视口范围:</span>
+                <span id="viewportBounds" class="value">--</span>
+            </div>
         </div>
         
         <div id="zoomHint" class="zoom-hint">
@@ -316,9 +434,15 @@
         let debugMode = true;
         let mapTilerKey = '';
         let currentRadius = 0;
+        let is3DMode = false;
+        let spotData = [];
+        let lastPitch = 0;
+        let lastBearing = 0;
 
         const MIN_ZOOM = 6;
         const MAX_ZOOM = 12;
+        const DEFAULT_3D_PITCH = 45;
+        const DEFAULT_3D_BEARING = 0;
 
         const OSM_STYLE = {
             version: 8,
@@ -415,6 +539,11 @@
             const mapSourceEl = document.getElementById('mapSource');
             const mapTilerKeyStatusEl = document.getElementById('mapTilerKeyStatus');
             const searchRadiusEl = document.getElementById('searchRadius');
+            const viewModeEl = document.getElementById('viewMode');
+            const pitchAngleEl = document.getElementById('pitchAngle');
+            const bearingAngleEl = document.getElementById('bearingAngle');
+            const visibleMarkerCountEl = document.getElementById('visibleMarkerCount');
+            const viewportBoundsEl = document.getElementById('viewportBounds');
 
             log(`updateDebugPanel() 被调用 - mapTilerKey='${mapTilerKey ? mapTilerKey.substring(0, 10) + '...' : '(空)'}', map=${!!map}`);
 
@@ -422,6 +551,8 @@
                 const zoom = map.getZoom();
                 const center = map.getCenter();
                 const radiusInfo = getRadiusInfo(zoom);
+                const pitch = map.getPitch();
+                const bearing = map.getBearing();
                 
                 zoomLevelEl.textContent = zoom.toFixed(2);
                 zoomLevelEl.className = (zoom >= MIN_ZOOM && zoom <= MAX_ZOOM) ? 'value ok' : 'value warning';
@@ -447,10 +578,29 @@
                 
                 centerCoordsEl.textContent = `${center.lat.toFixed(4)}, ${center.lng.toFixed(4)}`;
                 centerCoordsEl.className = 'value';
+
+                viewModeEl.textContent = is3DMode ? '3D 视图' : '2D 视图';
+                viewModeEl.className = is3DMode ? 'value ok' : 'value';
+                
+                pitchAngleEl.textContent = `${pitch.toFixed(1)}°`;
+                pitchAngleEl.className = pitch > 0 ? 'value ok' : 'value';
+                
+                bearingAngleEl.textContent = `${bearing.toFixed(1)}°`;
+                bearingAngleEl.className = Math.abs(bearing) > 0 ? 'value ok' : 'value';
+
+                const bounds = map.getBounds();
+                if (bounds) {
+                    const sw = bounds.getSouthWest();
+                    const ne = bounds.getNorthEast();
+                    viewportBoundsEl.textContent = `${sw.lat.toFixed(2)},${sw.lng.toFixed(2)} - ${ne.lat.toFixed(2)},${ne.lng.toFixed(2)}`;
+                }
             }
             
             markerCountEl.textContent = markers.length;
             markerCountEl.className = markers.length > 0 ? 'value ok' : 'value';
+            
+            visibleMarkerCountEl.textContent = markers.length;
+            visibleMarkerCountEl.className = markers.length > 0 ? 'value ok' : 'value';
             
             log(`  更新调试面板: mapTilerKey='${mapTilerKey ? '有值' : '空}'}`);
             
@@ -495,6 +645,157 @@
                 panel.style.display = 'none';
                 btn.textContent = '🔧 调试';
             }
+        }
+
+        function toggleViewMode() {
+            if (!map) {
+                log('地图尚未初始化，无法切换视图模式');
+                return;
+            }
+
+            is3DMode = !is3DMode;
+            log('切换视图模式:', is3DMode ? '3D 视图' : '2D 视图');
+
+            const toggleBtn = document.getElementById('modeToggleBtn');
+            const modeLabel = document.getElementById('modeLabel');
+            const viewControls = document.getElementById('viewControls');
+            const pitchHint = document.getElementById('pitchHint');
+
+            if (is3DMode) {
+                toggleBtn.classList.add('mode-3d');
+                modeLabel.textContent = '3D 视图';
+                viewControls.classList.add('show');
+
+                lastPitch = map.getPitch();
+                lastBearing = map.getBearing();
+
+                map.easeTo({
+                    pitch: DEFAULT_3D_PITCH,
+                    bearing: DEFAULT_3D_BEARING,
+                    duration: 800,
+                    essential: true
+                });
+
+                setTimeout(() => {
+                    pitchHint.classList.add('show');
+                    setTimeout(() => {
+                        pitchHint.classList.remove('show');
+                    }, 5000);
+                }, 1000);
+
+                refreshVisibleMarkers();
+            } else {
+                toggleBtn.classList.remove('mode-3d');
+                modeLabel.textContent = '2D 视图';
+                viewControls.classList.remove('show');
+
+                map.easeTo({
+                    pitch: 0,
+                    bearing: 0,
+                    duration: 800,
+                    essential: true
+                });
+
+                refreshVisibleMarkers();
+            }
+
+            updateDebugPanel();
+            setMapStatus(is3DMode ? '已切换到 3D 视图' : '已切换到 2D 视图', 'ok');
+        }
+
+        function setPitch(pitch) {
+            if (!map) return;
+            
+            const clampedPitch = Math.max(0, Math.min(60, pitch));
+            log('设置俯仰角度:', clampedPitch, '°');
+            
+            map.easeTo({
+                pitch: clampedPitch,
+                duration: 500,
+                essential: true
+            });
+
+            updateControlButtons('pitch', clampedPitch);
+            updateDebugPanel();
+        }
+
+        function setBearing(bearing) {
+            if (!map) return;
+            
+            log('设置旋转角度:', bearing, '°');
+            
+            map.easeTo({
+                bearing: bearing,
+                duration: 500,
+                essential: true
+            });
+
+            updateDebugPanel();
+        }
+
+        function rotateView(degrees) {
+            if (!map) return;
+            
+            const currentBearing = map.getBearing();
+            const newBearing = currentBearing + degrees;
+            
+            log('旋转视图:', degrees, '° -> 新角度:', newBearing, '°');
+            
+            map.easeTo({
+                bearing: newBearing,
+                duration: 500,
+                essential: true
+            });
+
+            updateDebugPanel();
+        }
+
+        function updateControlButtons(type, value) {
+            if (type === 'pitch') {
+                const buttons = document.querySelectorAll('.view-controls .control-btn');
+                buttons.forEach(btn => {
+                    const text = btn.textContent;
+                    let match = false;
+                    if (value === 0 && text === '平视') match = true;
+                    if (value === 30 && text === '低角度') match = true;
+                    if (value === 45 && text === '中角度') match = true;
+                    if (value === 60 && text === '高角度') match = true;
+                    
+                    if (match) {
+                        btn.classList.add('active');
+                    } else if (['平视', '低角度', '中角度', '高角度'].includes(text)) {
+                        btn.classList.remove('active');
+                    }
+                });
+            }
+        }
+
+        function refreshVisibleMarkers() {
+            if (!map || spotData.length === 0) {
+                log('没有数据需要刷新标记');
+                return;
+            }
+
+            const bounds = map.getBounds();
+            if (!bounds) {
+                log('无法获取地图边界');
+                return;
+            }
+
+            log('刷新可见标记, 当前标记数:', markers.length);
+            
+            clearMarkers();
+
+            let visibleCount = 0;
+            spotData.forEach(spot => {
+                const lngLat = new maplibregl.LngLat(spot.lon, spot.lat);
+                if (bounds.contains(lngLat)) {
+                    addMarker(spot);
+                    visibleCount++;
+                }
+            });
+
+            log('刷新完成, 可见标记数:', visibleCount);
         }
 
         function showError(message) {
@@ -670,8 +971,32 @@
                     }
                 });
                 
+                map.on('pitch', () => {
+                    const pitch = map.getPitch();
+                    if (Math.abs(pitch - lastPitch) > 0.5) {
+                        log('俯仰角度改变:', pitch.toFixed(1), '°');
+                        lastPitch = pitch;
+                        updateDebugPanel();
+                    }
+                });
+                
+                map.on('rotate', () => {
+                    const bearing = map.getBearing();
+                    if (Math.abs(bearing - lastBearing) > 0.5) {
+                        log('旋转角度改变:', bearing.toFixed(1), '°');
+                        lastBearing = bearing;
+                        updateDebugPanel();
+                    }
+                });
+                
                 map.on('move', () => {
                     updateDebugPanel();
+                });
+                
+                map.on('idle', () => {
+                    if (is3DMode) {
+                        refreshVisibleMarkers();
+                    }
                 });
 
                 updateDebugPanel();
@@ -766,16 +1091,31 @@
                 log('  - 总数:', data.total);
                 log('  - 景点列表:', data.spots ? data.spots.map(s => s.name) : '无数据');
                 
+                spotData = data.spots || [];
                 clearMarkers();
                 
-                if (data.spots && data.spots.length > 0) {
+                if (spotData.length > 0) {
                     log('开始添加标记...');
-                    data.spots.forEach((spot, index) => {
+                    const bounds = map.getBounds();
+                    let visibleCount = 0;
+                    
+                    spotData.forEach((spot, index) => {
                         log(`  [${index + 1}] ${spot.name} - (${spot.lat}, ${spot.lon}) - 距离: ${spot.distance} km`);
-                        addMarker(spot);
+                        
+                        if (bounds) {
+                            const lngLat = new maplibregl.LngLat(spot.lon, spot.lat);
+                            if (bounds.contains(lngLat)) {
+                                addMarker(spot);
+                                visibleCount++;
+                            }
+                        } else {
+                            addMarker(spot);
+                            visibleCount++;
+                        }
                     });
-                    log(`✓ 共添加 ${data.spots.length} 个标记`);
-                    setMapStatus(`已加载 ${data.spots.length} 个景点`, 'ok');
+                    
+                    log(`✓ 共添加 ${visibleCount} 个可见标记 (总共有 ${spotData.length} 个景点)`);
+                    setMapStatus(`已加载 ${spotData.length} 个景点`, 'ok');
                 } else {
                     log('当前区域没有找到景点');
                     setMapStatus('当前区域无景点', 'warning');
@@ -884,6 +1224,10 @@
         window.openPanorama = openPanorama;
         window.closePanorama = closePanorama;
         window.toggleDebug = toggleDebug;
+        window.toggleViewMode = toggleViewMode;
+        window.setPitch = setPitch;
+        window.setBearing = setBearing;
+        window.rotateView = rotateView;
 
         log('页面加载完成，开始初始化地图...');
         
