@@ -438,6 +438,8 @@
         let spotData = [];
         let lastPitch = 0;
         let lastBearing = 0;
+        let buildingLayerAdded = false;
+        let pendingBuildingLayer = false;
 
         const MIN_ZOOM = 6;
         const MAX_ZOOM = 12;
@@ -937,12 +939,215 @@
             }
         }
 
+        function tryAddBuildingLayer() {
+            if (buildingLayerAdded || !map) return;
+            
+            log('尝试添加 3D 建筑图层...');
+            
+            const style = map.getStyle();
+            const sources = style.sources;
+            const layers = style.layers;
+            
+            log('当前数据源:', Object.keys(sources));
+            
+            let vectorSourceId = null;
+            let hasBuildingSourceLayer = false;
+            let buildingSource = null;
+            
+            for (const layer of layers) {
+                if (layer['source-layer'] === BUILDING_SOURCE_LAYER) {
+                    hasBuildingSourceLayer = true;
+                    buildingSource = layer.source;
+                    log('找到 building 源图层，数据源:', layer.source);
+                    break;
+                }
+            }
+            
+            if (buildingSource) {
+                vectorSourceId = buildingSource;
+                log('使用包含建筑数据的数据源:', vectorSourceId);
+            } else {
+                for (const [id, source] of Object.entries(sources)) {
+                    log(`检查数据源: ${id}, 类型: ${source.type}`);
+                    
+                    if (source.type === 'vector' && 
+                        id !== 'maptiler_attribution' && 
+                        id !== 'maptiler_attribution_3_0') {
+                        vectorSourceId = id;
+                        log(`找到矢量数据源: ${id}`);
+                        break;
+                    }
+                }
+            }
+            
+            if (!vectorSourceId) {
+                log('⚠️ 未找到矢量数据源，稍后再试...');
+                setTimeout(() => {
+                    if (!buildingLayerAdded) {
+                        tryAddBuildingLayer();
+                    }
+                }, 500);
+                return;
+            }
+            
+            if (map.getLayer(BUILDING_LAYER_ID)) {
+                log('建筑图层已存在');
+                buildingLayerAdded = true;
+                pendingBuildingLayer = false;
+                return;
+            }
+            
+            let firstSymbolId = null;
+            
+            for (const layer of layers) {
+                if (layer.type === 'symbol') {
+                    firstSymbolId = layer.id;
+                    break;
+                }
+            }
+            
+            if (!hasBuildingSourceLayer) {
+                log('⚠️ 样式中没有 building 源图层');
+                log('可用的 source-layers:');
+                const sourceLayers = new Set();
+                for (const layer of layers) {
+                    if (layer['source-layer']) {
+                        sourceLayers.add(layer['source-layer']);
+                    }
+                }
+                log('  -', Array.from(sourceLayers).join(', '));
+            }
+            
+            try {
+                log('使用数据源添加建筑图层:', vectorSourceId);
+                
+                const layerConfig = {
+                    'id': BUILDING_LAYER_ID,
+                    'source': vectorSourceId,
+                    'source-layer': BUILDING_SOURCE_LAYER,
+                    'type': 'fill-extrusion',
+                    'minzoom': 14,
+                    'paint': {
+                        'fill-extrusion-color': {
+                            'property': 'type',
+                            'type': 'categorical',
+                            'stops': [
+                                ['building', '#e8e4df'],
+                                ['apartments', '#d4cfc7'],
+                                ['commercial', '#c9c4bc'],
+                                ['industrial', '#bfb9b1'],
+                                ['residential', '#ddd8d0']
+                            ],
+                            'default': '#e2ddd6'
+                        },
+                        'fill-extrusion-height': [
+                            'interpolate',
+                            ['linear'],
+                            ['zoom'],
+                            14,
+                            0,
+                            14.05,
+                            ['get', 'render_height']
+                        ],
+                        'fill-extrusion-base': [
+                            'interpolate',
+                            ['linear'],
+                            ['zoom'],
+                            14,
+                            0,
+                            14.05,
+                            ['get', 'render_min_height']
+                        ],
+                        'fill-extrusion-opacity': {
+                            'stops': [
+                                [14, 0],
+                                [14.5, 0.9],
+                                [17, 0.95]
+                            ]
+                        }
+                    }
+                };
+                
+                if (hasBuildingSourceLayer) {
+                    layerConfig['filter'] = ['==', 'extrude', 'true'];
+                }
+                
+                map.addLayer(layerConfig, firstSymbolId);
+                
+                buildingLayerAdded = true;
+                pendingBuildingLayer = false;
+                
+                log('✓ 3D 建筑图层添加成功!');
+                log('  - 图层 ID:', BUILDING_LAYER_ID);
+                log('  - 数据源:', vectorSourceId);
+                log('  - 源图层:', BUILDING_SOURCE_LAYER);
+                log('  - 最小缩放: 14');
+                
+                map.setLayoutProperty(BUILDING_LAYER_ID, 'visibility', 'none');
+                log('建筑图层已隐藏（默认 2D 模式）');
+                
+            } catch (error) {
+                log('✗ 添加 3D 建筑图层失败:', error);
+                log('尝试使用备用方案（无 filter）...');
+                
+                try {
+                    map.addLayer({
+                        'id': BUILDING_LAYER_ID,
+                        'source': vectorSourceId,
+                        'source-layer': BUILDING_SOURCE_LAYER,
+                        'type': 'fill-extrusion',
+                        'minzoom': 14,
+                        'paint': {
+                            'fill-extrusion-color': '#e2ddd6',
+                            'fill-extrusion-height': [
+                                'interpolate',
+                                ['linear'],
+                                ['zoom'],
+                                14,
+                                0,
+                                14.05,
+                                ['get', 'render_height']
+                            ],
+                            'fill-extrusion-opacity': {
+                                'stops': [
+                                    [14, 0],
+                                    [14.5, 0.9],
+                                    [17, 0.95]
+                                ]
+                            }
+                        }
+                    }, firstSymbolId);
+                    
+                    buildingLayerAdded = true;
+                    pendingBuildingLayer = false;
+                    
+                    log('✓ 3D 建筑图层添加成功（使用备用方案）!');
+                    
+                    map.setLayoutProperty(BUILDING_LAYER_ID, 'visibility', 'none');
+                    
+                } catch (error2) {
+                    log('✗ 备用方案也失败:', error2);
+                    log('提示: 当前样式可能不支持 3D 建筑图层');
+                    log('请确认:');
+                    log('  1. 使用的是 MapTiler 矢量地图（不是 raster）');
+                    log('  2. 样式中包含 building 源图层');
+                    log('  3. 使用的是 outdoor 或基本样式（通常包含建筑数据）');
+                }
+            }
+        }
+
         function toggleBuildingLayer(show) {
             if (!map) return;
 
             const layer = map.getLayer(BUILDING_LAYER_ID);
             if (!layer) {
                 log('建筑图层不存在，无法切换显示状态');
+                if (pendingBuildingLayer) {
+                    log('建筑图层正在加载中，稍后再试...');
+                    setTimeout(() => {
+                        toggleBuildingLayer(show);
+                    }, 500);
+                }
                 return;
             }
 
@@ -1075,8 +1280,12 @@
                         log('📝 使用 OpenStreetMap 作为备用地图');
                         log('⚠️ OpenStreetMap 栅格地图不支持 3D 建筑图层');
                     } else {
-                        log('📝 使用 MapTiler 地图，准备添加 3D 建筑图层');
-                        addBuildingLayer();
+                        log('📝 使用 MapTiler 地图，尝试添加 3D 建筑图层');
+                        pendingBuildingLayer = true;
+                        
+                        setTimeout(() => {
+                            tryAddBuildingLayer();
+                        }, 200);
                     }
                 });
 
@@ -1104,6 +1313,13 @@
                 map.on('styledata', () => {
                     log('样式数据已加载');
                     updateDebugPanel();
+                    
+                    if (MAPTILER_KEY && !buildingLayerAdded) {
+                        log('检测到样式数据加载，尝试添加 3D 建筑图层...');
+                        setTimeout(() => {
+                            tryAddBuildingLayer();
+                        }, 200);
+                    }
                 });
 
                 map.on('sourcedata', (e) => {
