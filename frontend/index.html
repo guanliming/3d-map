@@ -168,6 +168,21 @@
             opacity: 0;
             pointer-events: none;
         }
+        .error-toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(239, 68, 68, 0.9);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            z-index: 10000;
+            display: none;
+        }
+        .error-toast.show {
+            display: block;
+        }
     </style>
 </head>
 <body class="bg-gray-900">
@@ -182,6 +197,8 @@
             <div class="spinner"></div>
         </div>
         
+        <div id="errorToast" class="error-toast"></div>
+        
         <div id="panoramaModal" class="panorama-modal">
             <button class="close-btn" onclick="closePanorama()">×</button>
             <div id="panorama" class="panorama-container"></div>
@@ -194,74 +211,127 @@
         let currentPanorama = null;
         let currentZoomHintTimeout = null;
 
+        const OSM_STYLE = {
+            version: 8,
+            sources: {
+                'osm': {
+                    type: 'raster',
+                    tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+                    tileSize: 256,
+                    attribution: '&copy; OpenStreetMap contributors'
+                }
+            },
+            layers: [{
+                id: 'osm',
+                type: 'raster',
+                source: 'osm',
+                minzoom: 0,
+                maxzoom: 19
+            }]
+        };
+
+        function showError(message) {
+            const toast = document.getElementById('errorToast');
+            toast.textContent = message;
+            toast.classList.add('show');
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 5000);
+        }
+
         async function loadConfig() {
             try {
+                console.log('Loading config from /api/config...');
                 const response = await fetch('/api/config');
+                if (!response.ok) {
+                    console.error('Config API returned status:', response.status);
+                    return { maptiler_key: '' };
+                }
                 const config = await response.json();
+                console.log('Config loaded:', { hasKey: !!config.maptiler_key, keyLength: config.maptiler_key?.length || 0 });
                 return config;
             } catch (error) {
                 console.error('Failed to load config:', error);
+                showError('无法加载配置，将使用备用地图源');
                 return { maptiler_key: '' };
             }
         }
 
         async function initMap() {
+            console.log('Starting map initialization...');
+            
             const config = await loadConfig();
             const MAPTILER_KEY = config.maptiler_key || '';
-
-            const style = MAPTILER_KEY 
-                ? `https://api.maptiler.com/maps/streets/style.json?key=${MAPTILER_KEY}`
-                : {
-                    version: 8,
-                    sources: {
-                        'osm': {
-                            type: 'raster',
-                            tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-                            tileSize: 256,
-                            attribution: '&copy; OpenStreetMap contributors'
-                        }
-                    },
-                    layers: [{
-                        id: 'osm',
-                        type: 'raster',
-                        source: 'osm',
-                        minzoom: 0,
-                        maxzoom: 19
-                    }]
-                };
-
-            map = new maplibregl.Map({
-                container: 'map',
-                style: style,
-                center: [116.4074, 39.9042],
-                zoom: 3,
-                pitch: 45,
-                bearing: 0
-            });
-
-            map.addControl(new maplibregl.NavigationControl(), 'top-right');
-            map.addControl(new maplibregl.GeolocateControl({
-                positionOptions: { enableHighAccuracy: true },
-                trackUserLocation: true
-            }), 'top-right');
-            map.addControl(new maplibregl.FullscreenControl(), 'top-right');
-            map.addControl(new maplibregl.ScaleControl(), 'bottom-left');
-
-            map.on('moveend', debounce(handleMapMoveEnd, 300));
             
-            map.on('zoom', () => {
-                const zoom = map.getZoom();
-                if (zoom < 5) {
-                    showZoomHint();
-                }
-            });
+            let style;
+            if (MAPTILER_KEY) {
+                console.log('Using MapTiler with key');
+                style = `https://api.maptiler.com/maps/basic-v2/style.json?key=${MAPTILER_KEY}`;
+            } else {
+                console.log('No MapTiler key, using OpenStreetMap fallback');
+                style = OSM_STYLE;
+            }
 
-            map.on('load', () => {
-                console.log('Map loaded successfully');
-                if (!MAPTILER_KEY) {
-                    console.warn('MapTiler key not configured. Using OpenStreetMap as fallback.');
-                }
-            });
+            try {
+                console.log('Creating map instance...');
+                map = new maplibregl.Map({
+                    container: 'map',
+                    style: style,
+                    center: [116.4074, 39.9042],
+                    zoom: 10,
+                    pitch: 0,
+                    bearing: 0,
+                    failIfMajorPerformanceCaveat: false
+                });
+
+                map.addControl(new maplibregl.NavigationControl(), 'top-right');
+                map.addControl(new maplibregl.GeolocateControl({
+                    positionOptions: { enableHighAccuracy: true },
+                    trackUserLocation: true
+                }), 'top-right');
+                map.addControl(new maplibregl.FullscreenControl(), 'top-right');
+                map.addControl(new maplibregl.ScaleControl(), 'bottom-left');
+
+                map.on('load', () => {
+                    console.log('Map loaded successfully!');
+                    if (!MAPTILER_KEY) {
+                        console.log('Using OpenStreetMap as fallback');
+                    }
+                });
+
+                map.on('error', (e) => {
+                    console.error('Map error:', e);
+                    if (MAPTILER_KEY && !map.style.sourceCaches['osm']) {
+                        console.log('MapTiler failed, switching to OSM fallback...');
+                        map.setStyle(OSM_STYLE);
+                        showError('地图服务加载失败，已切换到备用地图');
+                    }
+                });
+
+                map.on('styledata', () => {
+                    console.log('Style data loaded');
+                });
+
+                map.on('sourcedata', (e) => {
+                    if (e.isSourceLoaded) {
+                        console.log('Source loaded:', e.sourceId);
+                    }
+                });
+
+                map.on('moveend', debounce(handleMapMoveEnd, 300));
+                
+                map.on('zoom', () => {
+                    const zoom = map.getZoom();
+                    console.log('Zoom level:', zoom);
+                    if (zoom < 5) {
+                        showZoomHint();
+                    }
+                });
+
+            } catch (error) {
+                console.error('Failed to initialize map:', error);
+                showError('地图初始化失败: ' + error.message);
+            }
         }
 
         function showZoomHint() {
@@ -278,6 +348,11 @@
         }
 
         function handleMapMoveEnd() {
+            if (!map) {
+                console.warn('Map not initialized yet');
+                return;
+            }
+            
             const zoom = map.getZoom();
             console.log('Map moved, zoom:', zoom);
             
@@ -286,6 +361,7 @@
                 showZoomHint();
             } else if (zoom >= 5 && zoom <= 18) {
                 const center = map.getCenter();
+                console.log('Map center:', { lat: center.lat, lng: center.lng });
                 loadScenicSpots(center.lat, center.lng);
             }
         }
@@ -303,23 +379,36 @@
         }
 
         async function loadScenicSpots(lat, lon) {
+            console.log('Loading scenic spots at:', { lat, lon });
             showLoading();
             
             try {
-                const response = await fetch(
-                    `/api/scenic_spots?lat=${lat}&lon=${lon}&radius=100`
-                );
+                const url = `/api/scenic_spots?lat=${lat}&lon=${lon}&radius=100`;
+                console.log('Fetching:', url);
+                
+                const response = await fetch(url);
+                if (!response.ok) {
+                    console.error('API returned status:', response.status);
+                    throw new Error('API请求失败');
+                }
+                
                 const data = await response.json();
+                console.log('API response:', data);
                 
                 clearMarkers();
                 
-                data.spots.forEach(spot => {
-                    addMarker(spot);
-                });
-                
-                console.log(`Loaded ${data.spots.length} scenic spots`);
+                if (data.spots && data.spots.length > 0) {
+                    data.spots.forEach(spot => {
+                        console.log('Adding marker:', spot.name, 'at', spot.lat, spot.lon);
+                        addMarker(spot);
+                    });
+                    console.log(`Loaded ${data.spots.length} scenic spots`);
+                } else {
+                    console.log('No scenic spots found in this area');
+                }
             } catch (error) {
                 console.error('Failed to load scenic spots:', error);
+                showError('加载景点失败: ' + error.message);
             } finally {
                 hideLoading();
             }
@@ -362,9 +451,11 @@
                 .addTo(map);
             
             markers.push(marker);
+            console.log('Marker added to map');
         }
 
         function clearMarkers() {
+            console.log('Clearing markers:', markers.length);
             markers.forEach(marker => marker.remove());
             markers = [];
         }
@@ -414,6 +505,7 @@
         window.openPanorama = openPanorama;
         window.closePanorama = closePanorama;
 
+        console.log('Page loaded, initializing map...');
         initMap();
     </script>
 </body>
