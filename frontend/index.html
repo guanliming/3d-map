@@ -1020,57 +1020,53 @@
             
             try {
                 log('使用数据源添加建筑图层:', vectorSourceId);
+                log('📝 改进配置: 降低 minzoom 到 12, 使用 coalesce 表达式获取高度, 移除 extrude 滤镜');
                 
                 const layerConfig = {
                     'id': BUILDING_LAYER_ID,
                     'source': vectorSourceId,
                     'source-layer': BUILDING_SOURCE_LAYER,
                     'type': 'fill-extrusion',
-                    'minzoom': 14,
+                    'minzoom': 12,
                     'paint': {
-                        'fill-extrusion-color': {
-                            'property': 'type',
-                            'type': 'categorical',
-                            'stops': [
-                                ['building', '#e8e4df'],
-                                ['apartments', '#d4cfc7'],
-                                ['commercial', '#c9c4bc'],
-                                ['industrial', '#bfb9b1'],
-                                ['residential', '#ddd8d0']
-                            ],
-                            'default': '#e2ddd6'
-                        },
+                        'fill-extrusion-color': [
+                            'match',
+                            ['get', 'type'],
+                            'apartments', '#d4a574',
+                            'commercial', '#8b7355',
+                            'industrial', '#708090',
+                            'residential', '#cd853f',
+                            'retail', '#b8860b',
+                            'school', '#4682b4',
+                            'hospital', '#90ee90',
+                            'hotel', '#daa520',
+                            '#c9b896'
+                        ],
                         'fill-extrusion-height': [
-                            'interpolate',
-                            ['linear'],
-                            ['zoom'],
-                            14,
-                            0,
-                            14.05,
-                            ['get', 'render_height']
+                            'case',
+                            ['has', 'render_height'],
+                            ['get', 'render_height'],
+                            ['has', 'height'],
+                            ['to-number', ['get', 'height']],
+                            [
+                                '+',
+                                8,
+                                [
+                                    '%',
+                                    ['abs', ['id']],
+                                    22
+                                ]
+                            ]
                         ],
                         'fill-extrusion-base': [
-                            'interpolate',
-                            ['linear'],
-                            ['zoom'],
-                            14,
-                            0,
-                            14.05,
-                            ['get', 'render_min_height']
+                            'coalesce',
+                            ['get', 'render_min_height'],
+                            ['get', 'min_height'],
+                            0
                         ],
-                        'fill-extrusion-opacity': {
-                            'stops': [
-                                [14, 0],
-                                [14.5, 0.9],
-                                [17, 0.95]
-                            ]
-                        }
+                        'fill-extrusion-opacity': 0.92
                     }
                 };
-                
-                if (hasBuildingSourceLayer) {
-                    layerConfig['filter'] = ['==', 'extrude', 'true'];
-                }
                 
                 map.addLayer(layerConfig, firstSymbolId);
                 
@@ -1081,40 +1077,36 @@
                 log('  - 图层 ID:', BUILDING_LAYER_ID);
                 log('  - 数据源:', vectorSourceId);
                 log('  - 源图层:', BUILDING_SOURCE_LAYER);
-                log('  - 最小缩放: 14');
+                log('  - 最小缩放: 12');
+                log('  - 高度字段: coalesce(render_height, to-number(height), 随机高度 7.5-22.5米)');
+                log('  - 不使用 extrude 滤镜（显示所有建筑）');
+                log('  - 颜色: 根据建筑类型区分颜色');
                 
                 map.setLayoutProperty(BUILDING_LAYER_ID, 'visibility', 'none');
                 log('建筑图层已隐藏（默认 2D 模式）');
                 
             } catch (error) {
                 log('✗ 添加 3D 建筑图层失败:', error);
-                log('尝试使用备用方案（无 filter）...');
+                log('尝试使用备用方案...');
                 
                 try {
+                    log('备用方案: 使用随机高度 10-25 米');
                     map.addLayer({
                         'id': BUILDING_LAYER_ID,
                         'source': vectorSourceId,
                         'source-layer': BUILDING_SOURCE_LAYER,
                         'type': 'fill-extrusion',
-                        'minzoom': 14,
+                        'minzoom': 12,
                         'paint': {
-                            'fill-extrusion-color': '#e2ddd6',
-                            'fill-extrusion-height': [
+                            'fill-extrusion-color': [
                                 'interpolate',
                                 ['linear'],
                                 ['zoom'],
-                                14,
-                                0,
-                                14.05,
-                                ['get', 'render_height']
+                                12, '#e2ddd6',
+                                16, '#d4cfc7'
                             ],
-                            'fill-extrusion-opacity': {
-                                'stops': [
-                                    [14, 0],
-                                    [14.5, 0.9],
-                                    [17, 0.95]
-                                ]
-                            }
+                            'fill-extrusion-height': 15,
+                            'fill-extrusion-opacity': 0.85
                         }
                     }, firstSymbolId);
                     
@@ -1122,6 +1114,7 @@
                     pendingBuildingLayer = false;
                     
                     log('✓ 3D 建筑图层添加成功（使用备用方案）!');
+                    log('  - 使用固定高度: 15 米');
                     
                     map.setLayoutProperty(BUILDING_LAYER_ID, 'visibility', 'none');
                     
@@ -1132,6 +1125,7 @@
                     log('  1. 使用的是 MapTiler 矢量地图（不是 raster）');
                     log('  2. 样式中包含 building 源图层');
                     log('  3. 使用的是 outdoor 或基本样式（通常包含建筑数据）');
+                    log('  4. 尝试使用 MapTiler Streets 或 Outdoor 样式');
                 }
             }
         }
@@ -1153,7 +1147,24 @@
 
             const visibility = show ? 'visible' : 'none';
             map.setLayoutProperty(BUILDING_LAYER_ID, 'visibility', visibility);
-            log(`建筑图层已${show ? '显示' : '隐藏'}`);
+            log(`3D 建筑图层已${show ? '显示' : '隐藏'}`);
+
+            const buildingLayerNames = ['Building', 'building', 'Building 3D', 'buildings', 'Buildings'];
+            let nativeBuildingLayerFound = false;
+            
+            for (const name of buildingLayerNames) {
+                const nativeLayer = map.getLayer(name);
+                if (nativeLayer) {
+                    nativeBuildingLayerFound = true;
+                    const nativeVisibility = show ? 'none' : 'visible';
+                    map.setLayoutProperty(name, 'visibility', nativeVisibility);
+                    log(`原生建筑图层 "${name}" 已${show ? '隐藏' : '显示'}（避免与 3D 图层重叠）`);
+                }
+            }
+
+            if (!nativeBuildingLayerFound) {
+                log('未检测到原生建筑图层，无需切换');
+            }
         }
 
         function showError(message) {
@@ -1275,6 +1286,93 @@
                     log('  - 当前中心:', map.getCenter());
                     setMapStatus('已加载', 'ok');
                     updateDebugPanel();
+                    
+                    log('🔧 添加建筑点击调试功能: 点击地图上的建筑可查看其属性');
+                    map.on('click', (e) => {
+                        const features = map.queryRenderedFeatures(e.point);
+                        if (features && features.length > 0) {
+                            let buildingFound = false;
+                            for (const feature of features) {
+                                const layerId = feature.layer?.id;
+                                const sourceLayer = feature.layer?.['source-layer'];
+                                
+                                if (sourceLayer === BUILDING_SOURCE_LAYER || 
+                                    layerId === BUILDING_LAYER_ID ||
+                                    (layerId && layerId.toLowerCase().includes('building'))) {
+                                    buildingFound = true;
+                                    log('==================================================');
+                                    log('🏢 点击到建筑!');
+                                    log('==================================================');
+                                    log('  - 图层 ID:', layerId);
+                                    log('  - 源图层:', sourceLayer);
+                                    log('  - 要素 ID:', feature.id);
+                                    log('  - 要素类型:', feature.type);
+                                    log('==================================================');
+                                    log('📋 所有属性 (properties):');
+                                    log('==================================================');
+                                    
+                                    if (feature.properties) {
+                                        const props = feature.properties;
+                                        const keys = Object.keys(props).sort();
+                                        
+                                        for (const key of keys) {
+                                            const value = props[key];
+                                            const keyLower = key.toLowerCase();
+                                            let highlight = '';
+                                            
+                                            if (keyLower.includes('height') || 
+                                                keyLower.includes('render') ||
+                                                keyLower.includes('elevation') ||
+                                                keyLower.includes('level') ||
+                                                keyLower === 'h' ||
+                                                keyLower === 'z') {
+                                                highlight = ' ⭐';
+                                            }
+                                            
+                                            log(`  ${key}${highlight}:`, value);
+                                        }
+                                        
+                                        log('==================================================');
+                                        log('📊 高度相关字段汇总:');
+                                        log('==================================================');
+                                        for (const key of keys) {
+                                            const keyLower = key.toLowerCase();
+                                            if (keyLower.includes('height') || 
+                                                keyLower.includes('render') ||
+                                                keyLower.includes('elevation') ||
+                                                keyLower.includes('min_') ||
+                                                keyLower.includes('max_')) {
+                                                log(`  ${key}:`, props[key]);
+                                            }
+                                        }
+                                    } else {
+                                        log('  ⚠️ 该要素没有 properties 属性');
+                                    }
+                                    
+                                    log('==================================================');
+                                    log('💡 提示: 检查上面的 ⭐ 标记字段，这些可能包含高度数据');
+                                    log('==================================================');
+                                    
+                                    break;
+                                }
+                            }
+                            
+                            if (!buildingFound) {
+                                log('👆 点击位置没有检测到建筑要素，检测到的图层:');
+                                for (const feature of features.slice(0, 5)) {
+                                    log('  - 图层:', feature.layer?.id, 
+                                        '| 源图层:', feature.layer?.['source-layer'],
+                                        '| 类型:', feature.layer?.type);
+                                }
+                                if (features.length > 5) {
+                                    log('  - ... 还有', features.length - 5, '个要素');
+                                }
+                            }
+                        } else {
+                            log('👆 点击位置没有检测到任何要素');
+                            log('   💡 提示: 请放大地图到缩放级别 >= 14，然后点击建筑物');
+                        }
+                    });
                     
                     if (!MAPTILER_KEY) {
                         log('📝 使用 OpenStreetMap 作为备用地图');
