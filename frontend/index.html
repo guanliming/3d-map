@@ -325,7 +325,7 @@
         .weather-panel {
             position: absolute;
             top: 10px;
-            right: 280px;
+            left: 300px;
             z-index: 100;
             background: rgba(0, 0, 0, 0.75);
             color: white;
@@ -413,11 +413,220 @@
             font-size: 11px;
             color: #a0aec0;
         }
+        
+        .weather-effects {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 90;
+            opacity: 0;
+            transition: opacity 1s ease-in-out;
+        }
+        
+        .weather-effects.show {
+            opacity: 1;
+        }
+        
+        .rain-container,
+        .snow-container,
+        .clouds-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            display: none;
+        }
+        
+        .rain-container.active,
+        .snow-container.active,
+        .clouds-container.active {
+            display: block;
+        }
+        
+        .rain-drop {
+            position: absolute;
+            width: 3px;
+            height: 30px;
+            background: linear-gradient(to bottom, transparent, rgba(100, 149, 237, 0.9));
+            animation: rain-fall linear infinite;
+            border-radius: 0 0 3px 3px;
+        }
+        
+        .rain-container.light-rain .rain-drop {
+            width: 2px;
+            height: 20px;
+            background: linear-gradient(to bottom, transparent, rgba(147, 197, 253, 0.6));
+        }
+        
+        .rain-container.medium-rain .rain-drop {
+            width: 3px;
+            height: 28px;
+            background: linear-gradient(to bottom, transparent, rgba(100, 149, 237, 0.8));
+        }
+        
+        .rain-container.heavy-rain .rain-drop {
+            width: 4px;
+            height: 35px;
+            background: linear-gradient(to bottom, transparent, rgba(59, 130, 246, 1));
+        }
+        
+        @keyframes rain-fall {
+            0% {
+                transform: translateY(-100px);
+                opacity: 0;
+            }
+            10% {
+                opacity: 1;
+            }
+            90% {
+                opacity: 1;
+            }
+            100% {
+                transform: translateY(100vh);
+                opacity: 0;
+            }
+        }
+        
+        .rain-container.light-rain .rain-drop {
+            animation-duration: 1.2s;
+        }
+        
+        .rain-container.medium-rain .rain-drop {
+            animation-duration: 0.9s;
+        }
+        
+        .rain-container.heavy-rain .rain-drop {
+            animation-duration: 0.6s;
+        }
+        
+        .snow-flake {
+            position: absolute;
+            background: white;
+            border-radius: 50%;
+            animation: snow-fall linear infinite;
+            opacity: 0.8;
+        }
+        
+        @keyframes snow-fall {
+            0% {
+                transform: translateY(-50px) translateX(0) rotate(0deg);
+                opacity: 0;
+            }
+            10% {
+                opacity: 0.8;
+            }
+            100% {
+                transform: translateY(100vh) translateX(30px) rotate(360deg);
+                opacity: 0;
+            }
+        }
+        
+        .cloud {
+            position: absolute;
+            background: rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            filter: blur(20px);
+            animation: cloud-drift linear infinite;
+        }
+        
+        @keyframes cloud-drift {
+            0% {
+                transform: translateX(-200px);
+            }
+            100% {
+                transform: translateX(calc(100vw + 200px));
+            }
+        }
+        
+        .rain-container .rain-drop:nth-child(1) { left: 5%; animation-duration: 0.8s; animation-delay: 0s; }
+        .rain-container .rain-drop:nth-child(2) { left: 15%; animation-duration: 0.7s; animation-delay: 0.2s; }
+        .rain-container .rain-drop:nth-child(3) { left: 25%; animation-duration: 0.9s; animation-delay: 0.4s; }
+        .rain-container .rain-drop:nth-child(4) { left: 35%; animation-duration: 0.6s; animation-delay: 0.1s; }
+        .rain-container .rain-drop:nth-child(5) { left: 45%; animation-duration: 0.8s; animation-delay: 0.3s; }
+        .rain-container .rain-drop:nth-child(6) { left: 55%; animation-duration: 0.7s; animation-delay: 0.5s; }
+        .rain-container .rain-drop:nth-child(7) { left: 65%; animation-duration: 0.9s; animation-delay: 0.2s; }
+        .rain-container .rain-drop:nth-child(8) { left: 75%; animation-duration: 0.6s; animation-delay: 0.4s; }
+        .rain-container .rain-drop:nth-child(9) { left: 85%; animation-duration: 0.8s; animation-delay: 0.1s; }
+        .rain-container .rain-drop:nth-child(10) { left: 95%; animation-duration: 0.7s; animation-delay: 0.3s; }
+        .rain-container .rain-drop:nth-child(11) { left: 10%; animation-duration: 0.75s; animation-delay: 0.15s; }
+        .rain-container .rain-drop:nth-child(12) { left: 20%; animation-duration: 0.85s; animation-delay: 0.35s; }
+        .rain-container .rain-drop:nth-child(13) { left: 30%; animation-duration: 0.65s; animation-delay: 0.55s; }
+        .rain-container .rain-drop:nth-child(14) { left: 40%; animation-duration: 0.95s; animation-delay: 0.25s; }
+        .rain-container .rain-drop:nth-child(15) { left: 50%; animation-duration: 0.75s; animation-delay: 0.45s; }
+        .rain-container .rain-drop:nth-child(16) { left: 60%; animation-duration: 0.85s; animation-delay: 0.15s; }
+        .rain-container .rain-drop:nth-child(17) { left: 70%; animation-duration: 0.65s; animation-delay: 0.35s; }
+        .rain-container .rain-drop:nth-child(18) { left: 80%; animation-duration: 0.95s; animation-delay: 0.55s; }
+        .rain-container .rain-drop:nth-child(19) { left: 90%; animation-duration: 0.75s; animation-delay: 0.25s; }
+        .rain-container .rain-drop:nth-child(20) { left: 3%; animation-duration: 0.85s; animation-delay: 0.45s; }
+        
+        .snow-container .snow-flake:nth-child(1) { left: 5%; width: 8px; height: 8px; animation-duration: 4s; animation-delay: 0s; }
+        .snow-container .snow-flake:nth-child(2) { left: 15%; width: 6px; height: 6px; animation-duration: 5s; animation-delay: 1s; }
+        .snow-container .snow-flake:nth-child(3) { left: 25%; width: 10px; height: 10px; animation-duration: 3.5s; animation-delay: 0.5s; }
+        .snow-container .snow-flake:nth-child(4) { left: 35%; width: 5px; height: 5px; animation-duration: 6s; animation-delay: 1.5s; }
+        .snow-container .snow-flake:nth-child(5) { left: 45%; width: 9px; height: 9px; animation-duration: 4.5s; animation-delay: 0s; }
+        .snow-container .snow-flake:nth-child(6) { left: 55%; width: 7px; height: 7px; animation-duration: 5s; animation-delay: 2s; }
+        .snow-container .snow-flake:nth-child(7) { left: 65%; width: 11px; height: 11px; animation-duration: 3s; animation-delay: 1s; }
+        .snow-container .snow-flake:nth-child(8) { left: 75%; width: 6px; height: 6px; animation-duration: 5.5s; animation-delay: 0.5s; }
+        .snow-container .snow-flake:nth-child(9) { left: 85%; width: 8px; height: 8px; animation-duration: 4s; animation-delay: 1.5s; }
+        .snow-container .snow-flake:nth-child(10) { left: 95%; width: 10px; height: 10px; animation-duration: 3.5s; animation-delay: 0s; }
+        
+        .clouds-container .cloud:nth-child(1) { top: 10%; width: 200px; height: 80px; animation-duration: 30s; }
+        .clouds-container .cloud:nth-child(2) { top: 25%; width: 300px; height: 100px; animation-duration: 40s; animation-delay: 10s; }
+        .clouds-container .cloud:nth-child(3) { top: 5%; width: 250px; height: 90px; animation-duration: 35s; animation-delay: 5s; }
     </style>
 </head>
 <body class="bg-gray-900">
     <div id="app" class="relative">
         <div id="map"></div>
+        
+        <div id="weatherEffects" class="weather-effects">
+            <div id="rainContainer" class="rain-container">
+                <div class="rain-drop"></div>
+                <div class="rain-drop"></div>
+                <div class="rain-drop"></div>
+                <div class="rain-drop"></div>
+                <div class="rain-drop"></div>
+                <div class="rain-drop"></div>
+                <div class="rain-drop"></div>
+                <div class="rain-drop"></div>
+                <div class="rain-drop"></div>
+                <div class="rain-drop"></div>
+                <div class="rain-drop"></div>
+                <div class="rain-drop"></div>
+                <div class="rain-drop"></div>
+                <div class="rain-drop"></div>
+                <div class="rain-drop"></div>
+                <div class="rain-drop"></div>
+                <div class="rain-drop"></div>
+                <div class="rain-drop"></div>
+                <div class="rain-drop"></div>
+                <div class="rain-drop"></div>
+            </div>
+            
+            <div id="snowContainer" class="snow-container">
+                <div class="snow-flake"></div>
+                <div class="snow-flake"></div>
+                <div class="snow-flake"></div>
+                <div class="snow-flake"></div>
+                <div class="snow-flake"></div>
+                <div class="snow-flake"></div>
+                <div class="snow-flake"></div>
+                <div class="snow-flake"></div>
+                <div class="snow-flake"></div>
+                <div class="snow-flake"></div>
+            </div>
+            
+            <div id="cloudsContainer" class="clouds-container">
+                <div class="cloud"></div>
+                <div class="cloud"></div>
+                <div class="cloud"></div>
+            </div>
+        </div>
         
         <button id="modeToggleBtn" class="mode-toggle-btn" onclick="toggleViewMode()">
             <span class="mode-indicator" id="modeIndicator"></span>
@@ -611,6 +820,136 @@
             '强沙尘暴': '🌪️',
             '霾': '🌫️'
         };
+
+        function isRainWeather(weather) {
+            if (!weather) return false;
+            const rainPatterns = ['雨', '阵雨', '雷阵雨', '小雨', '中雨', '大雨', '暴雨', '冻雨'];
+            return rainPatterns.some(pattern => weather.includes(pattern));
+        }
+
+        function getRainIntensity(weather) {
+            if (!weather) return null;
+            
+            const heavyRainPatterns = ['暴雨', '大暴雨', '特大暴雨', '大雨-暴雨', '暴雨-大暴雨', '大暴雨-特大暴雨'];
+            for (const pattern of heavyRainPatterns) {
+                if (weather.includes(pattern)) {
+                    return 'heavy';
+                }
+            }
+            
+            const mediumRainPatterns = ['大雨', '中雨-大雨', '雷阵雨', '雷阵雨并伴有冰雹', '冻雨'];
+            for (const pattern of mediumRainPatterns) {
+                if (weather.includes(pattern)) {
+                    return 'medium';
+                }
+            }
+            
+            const lightRainPatterns = ['小雨', '阵雨', '小雨-中雨', '雨夹雪'];
+            for (const pattern of lightRainPatterns) {
+                if (weather.includes(pattern)) {
+                    return 'light';
+                }
+            }
+            
+            if (weather.includes('雨')) {
+                return 'medium';
+            }
+            
+            return null;
+        }
+
+        function isSnowWeather(weather) {
+            if (!weather) return false;
+            const snowPatterns = ['雪', '阵雪', '小雪', '中雪', '大雪', '暴雪', '雨夹雪'];
+            return snowPatterns.some(pattern => weather.includes(pattern));
+        }
+
+        function isCloudWeather(weather) {
+            if (!weather) return false;
+            const cloudPatterns = ['多云', '阴'];
+            return cloudPatterns.some(pattern => weather.includes(pattern));
+        }
+
+        let currentWeatherEffect = null;
+        let currentRainIntensity = null;
+
+        function updateWeatherEffects(weather) {
+            const weatherEffects = document.getElementById('weatherEffects');
+            const rainContainer = document.getElementById('rainContainer');
+            const snowContainer = document.getElementById('snowContainer');
+            const cloudsContainer = document.getElementById('cloudsContainer');
+            
+            if (!weatherEffects || !rainContainer || !snowContainer || !cloudsContainer) {
+                log('天气效果元素未找到');
+                return;
+            }
+            
+            rainContainer.classList.remove('active', 'light-rain', 'medium-rain', 'heavy-rain');
+            snowContainer.classList.remove('active');
+            cloudsContainer.classList.remove('active');
+            
+            let newEffect = null;
+            let newRainIntensity = null;
+            
+            if (isSnowWeather(weather)) {
+                snowContainer.classList.add('active');
+                newEffect = 'snow';
+                log('显示下雪效果');
+            } else if (isRainWeather(weather)) {
+                const intensity = getRainIntensity(weather);
+                newRainIntensity = intensity;
+                
+                rainContainer.classList.add('active');
+                if (intensity === 'heavy') {
+                    rainContainer.classList.add('heavy-rain');
+                    log('显示大雨效果');
+                } else if (intensity === 'medium') {
+                    rainContainer.classList.add('medium-rain');
+                    log('显示中雨效果');
+                } else {
+                    rainContainer.classList.add('light-rain');
+                    log('显示小雨效果');
+                }
+                newEffect = 'rain';
+            } else if (isCloudWeather(weather)) {
+                cloudsContainer.classList.add('active');
+                newEffect = 'clouds';
+                log('显示多云效果');
+            }
+            
+            if (newEffect) {
+                weatherEffects.classList.add('show');
+            } else {
+                weatherEffects.classList.remove('show');
+            }
+            
+            const effectChanged = currentWeatherEffect !== newEffect;
+            const intensityChanged = newEffect === 'rain' && currentRainIntensity !== newRainIntensity;
+            
+            if (effectChanged || intensityChanged) {
+                currentWeatherEffect = newEffect;
+                currentRainIntensity = newRainIntensity;
+                log('天气效果已切换:', newEffect || '无', newRainIntensity ? `(${newRainIntensity})` : '');
+            }
+        }
+
+        function clearWeatherEffects() {
+            const weatherEffects = document.getElementById('weatherEffects');
+            if (weatherEffects) {
+                weatherEffects.classList.remove('show');
+            }
+            
+            const rainContainer = document.getElementById('rainContainer');
+            const snowContainer = document.getElementById('snowContainer');
+            const cloudsContainer = document.getElementById('cloudsContainer');
+            
+            if (rainContainer) rainContainer.classList.remove('active');
+            if (snowContainer) snowContainer.classList.remove('active');
+            if (cloudsContainer) cloudsContainer.classList.remove('active');
+            
+            currentWeatherEffect = null;
+            log('已清除所有天气效果');
+        }
 
         const MIN_ZOOM = 6;
         const MAX_ZOOM = 12;
@@ -1756,6 +2095,7 @@
                 panel.classList.remove('show');
                 log('天气面板隐藏（透明度渐变）');
             }
+            clearWeatherEffects();
         }
 
         function updateWeatherDisplay(data) {
@@ -1819,6 +2159,8 @@
                     const time = weatherLive.reporttime;
                     timeEl.textContent = time.substring(11, 16) || '--:--';
                 }
+                
+                updateWeatherEffects(weatherLive.weather);
             }
 
             currentWeatherData = data;
