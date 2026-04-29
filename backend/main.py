@@ -223,6 +223,15 @@ def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
 AMAP_GEOCODE_REGEO_URL = "https://restapi.amap.com/v3/geocode/regeo"
 AMAP_WEATHER_URL = "https://restapi.amap.com/v3/weather/weatherInfo"
 
+def _safe_str(value) -> Optional[str]:
+    if value is None:
+        return None
+    if isinstance(value, list):
+        if len(value) == 0:
+            return None
+        return str(value[0])
+    return str(value)
+
 async def get_regeocode(lon: float, lat: float) -> Optional[dict]:
     if not amap_key:
         logger.warning("AMAP_KEY 未配置，无法调用逆地理编码接口")
@@ -246,15 +255,28 @@ async def get_regeocode(lon: float, lat: float) -> Optional[dict]:
             regeocode = data.get("regeocode", {})
             address_component = regeocode.get("addressComponent", {})
             
+            logger.info(f"  原始地址组件: {address_component}")
+            
+            province = _safe_str(address_component.get("province"))
+            city = _safe_str(address_component.get("city"))
+            district = _safe_str(address_component.get("district"))
+            
+            if not city and province:
+                if province in ["北京市", "上海市", "天津市", "重庆市", "北京", "上海", "天津", "重庆"]:
+                    city = province
+                    logger.info(f"  直辖市，将 city 设置为 province: {city}")
+            
             return {
-                "province": address_component.get("province"),
-                "city": address_component.get("city"),
-                "district": address_component.get("district"),
-                "formatted_address": regeocode.get("formatted_address"),
-                "adcode": address_component.get("adcode")
+                "province": province,
+                "city": city,
+                "district": district,
+                "formatted_address": _safe_str(regeocode.get("formatted_address")),
+                "adcode": _safe_str(address_component.get("adcode"))
             }
     except Exception as e:
         logger.error(f"调用逆地理编码接口异常: {e}")
+        import traceback
+        traceback.print_exc()
         return None
 
 async def get_weather(adcode: str, extensions: str = "base") -> Optional[dict]:
