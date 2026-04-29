@@ -718,9 +718,9 @@
                 };
                 
                 this.cloudConfig = {
-                    count: 5,
-                    speed: 0.3,
-                    opacity: 0.3
+                    count: 12,
+                    speed: 0.5,
+                    opacity: 0.6
                 };
             }
             
@@ -847,25 +847,26 @@
                 this.clouds = [];
                 
                 for (let i = 0; i < config.count; i++) {
-                    const cloudWidth = 150 + Math.random() * 200;
-                    const cloudHeight = 60 + Math.random() * 80;
+                    const cloudWidth = 200 + Math.random() * 300;
+                    const cloudHeight = 80 + Math.random() * 100;
                     
                     const circles = [];
-                    for (let j = 0; j < 5; j++) {
+                    const circleCount = 6 + Math.floor(Math.random() * 4);
+                    for (let j = 0; j < circleCount; j++) {
                         circles.push({
                             offsetX: Math.random() * cloudWidth,
                             offsetY: Math.random() * cloudHeight,
-                            radius: 30 + Math.random() * 50
+                            radius: 40 + Math.random() * 60
                         });
                     }
                     
                     this.clouds.push({
-                        x: Math.random() * (this.width + 400) - 200,
-                        y: Math.random() * (this.height * 0.4),
+                        x: Math.random() * (this.width + 400) - 400,
+                        y: Math.random() * (this.height * 0.35),
                         width: cloudWidth,
                         height: cloudHeight,
-                        speed: config.speed * (0.5 + Math.random()),
-                        opacity: config.opacity * (0.6 + Math.random() * 0.4),
+                        speed: config.speed * (0.4 + Math.random() * 0.8),
+                        opacity: config.opacity * (0.7 + Math.random() * 0.3),
                         circles: circles
                     });
                 }
@@ -952,34 +953,34 @@
                 this.clouds.forEach(cloud => {
                     this.ctx.save();
                     
-                    const gradient = this.ctx.createRadialGradient(
-                        cloud.x + cloud.width / 2,
-                        cloud.y + cloud.height / 2,
-                        0,
-                        cloud.x + cloud.width / 2,
-                        cloud.y + cloud.height / 2,
-                        cloud.width / 2
-                    );
-                    gradient.addColorStop(0, `rgba(255, 255, 255, ${cloud.opacity})`);
-                    gradient.addColorStop(1, `rgba(255, 255, 255, 0)`);
-                    
-                    this.ctx.fillStyle = gradient;
-                    this.ctx.beginPath();
+                    this.ctx.globalAlpha = cloud.opacity;
                     
                     cloud.circles.forEach(circle => {
                         const cx = cloud.x + circle.offsetX;
                         const cy = cloud.y + circle.offsetY;
-                        this.ctx.arc(cx, cy, circle.radius, 0, Math.PI * 2);
+                        const r = circle.radius;
+                        
+                        const gradient = this.ctx.createRadialGradient(
+                            cx, cy, 0,
+                            cx, cy, r
+                        );
+                        gradient.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
+                        gradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.7)');
+                        gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+                        
+                        this.ctx.fillStyle = gradient;
+                        this.ctx.beginPath();
+                        this.ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                        this.ctx.fill();
                     });
                     
-                    this.ctx.fill();
                     this.ctx.restore();
                     
                     cloud.x += cloud.speed;
                     
                     if (cloud.x > this.width + cloud.width) {
                         cloud.x = -cloud.width;
-                        cloud.y = Math.random() * (this.height * 0.4);
+                        cloud.y = Math.random() * (this.height * 0.35);
                     }
                 });
             }
