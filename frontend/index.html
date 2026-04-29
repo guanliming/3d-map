@@ -325,7 +325,7 @@
         .weather-panel {
             position: absolute;
             top: 10px;
-            right: 280px;
+            left: 300px;
             z-index: 100;
             background: rgba(0, 0, 0, 0.75);
             color: white;
@@ -413,11 +413,40 @@
             font-size: 11px;
             color: #a0aec0;
         }
+        
+        .weather-effects {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 90;
+            opacity: 0;
+            transition: opacity 1s ease-in-out;
+        }
+        
+        .weather-effects.show {
+            opacity: 1;
+        }
+        
+        #weatherCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
     </style>
 </head>
 <body class="bg-gray-900">
     <div id="app" class="relative">
         <div id="map"></div>
+        
+        <div id="weatherEffects" class="weather-effects">
+            <canvas id="weatherCanvas"></canvas>
+        </div>
         
         <button id="modeToggleBtn" class="mode-toggle-btn" onclick="toggleViewMode()">
             <span class="mode-indicator" id="modeIndicator"></span>
@@ -611,6 +640,421 @@
             '强沙尘暴': '🌪️',
             '霾': '🌫️'
         };
+
+        function isRainWeather(weather) {
+            if (!weather) return false;
+            const rainPatterns = ['雨', '阵雨', '雷阵雨', '小雨', '中雨', '大雨', '暴雨', '冻雨'];
+            return rainPatterns.some(pattern => weather.includes(pattern));
+        }
+
+        function getRainIntensity(weather) {
+            if (!weather) return null;
+            
+            const heavyRainPatterns = ['暴雨', '大暴雨', '特大暴雨', '大雨-暴雨', '暴雨-大暴雨', '大暴雨-特大暴雨'];
+            for (const pattern of heavyRainPatterns) {
+                if (weather.includes(pattern)) {
+                    return 'heavy';
+                }
+            }
+            
+            const mediumRainPatterns = ['大雨', '中雨-大雨', '雷阵雨', '雷阵雨并伴有冰雹', '冻雨'];
+            for (const pattern of mediumRainPatterns) {
+                if (weather.includes(pattern)) {
+                    return 'medium';
+                }
+            }
+            
+            const lightRainPatterns = ['小雨', '阵雨', '小雨-中雨', '雨夹雪'];
+            for (const pattern of lightRainPatterns) {
+                if (weather.includes(pattern)) {
+                    return 'light';
+                }
+            }
+            
+            if (weather.includes('雨')) {
+                return 'medium';
+            }
+            
+            return null;
+        }
+
+        function isSnowWeather(weather) {
+            if (!weather) return false;
+            const snowPatterns = ['雪', '阵雪', '小雪', '中雪', '大雪', '暴雪', '雨夹雪'];
+            return snowPatterns.some(pattern => weather.includes(pattern));
+        }
+
+        function isCloudWeather(weather) {
+            if (!weather) return false;
+            const cloudPatterns = ['多云', '阴'];
+            return cloudPatterns.some(pattern => weather.includes(pattern));
+        }
+
+        class WeatherEffectManager {
+            constructor() {
+                this.canvas = null;
+                this.ctx = null;
+                this.width = 0;
+                this.height = 0;
+                this.animationId = null;
+                this.currentEffect = null;
+                this.currentRainIntensity = null;
+                
+                this.rainDrops = [];
+                this.snowFlakes = [];
+                this.clouds = [];
+                
+                this.rainConfig = {
+                    light: { count: 150, speed: 8, opacity: 0.6, width: 1, length: 15 },
+                    medium: { count: 300, speed: 12, opacity: 0.8, width: 2, length: 20 },
+                    heavy: { count: 500, speed: 18, opacity: 1, width: 3, length: 30 }
+                };
+                
+                this.snowConfig = {
+                    count: 200,
+                    speedRange: [1, 3],
+                    sizeRange: [2, 8],
+                    opacityRange: [0.6, 0.9]
+                };
+                
+                this.cloudConfig = {
+                    count: 12,
+                    speed: 0.5,
+                    opacity: 0.6
+                };
+            }
+            
+            init() {
+                this.canvas = document.getElementById('weatherCanvas');
+                if (!this.canvas) {
+                    log('天气Canvas元素未找到');
+                    return false;
+                }
+                
+                this.ctx = this.canvas.getContext('2d');
+                this.resize();
+                
+                window.addEventListener('resize', () => this.resize());
+                
+                log('天气效果管理器初始化完成');
+                return true;
+            }
+            
+            resize() {
+                if (!this.canvas) return;
+                
+                this.width = window.innerWidth;
+                this.height = window.innerHeight;
+                
+                this.canvas.width = this.width;
+                this.canvas.height = this.height;
+                
+                log('天气Canvas尺寸更新:', this.width, 'x', this.height);
+            }
+            
+            startEffect(effect, rainIntensity = null) {
+                if (this.currentEffect === effect && 
+                    (effect !== 'rain' || this.currentRainIntensity === rainIntensity)) {
+                    return;
+                }
+                
+                this.stopEffect();
+                
+                this.currentEffect = effect;
+                this.currentRainIntensity = rainIntensity;
+                
+                switch (effect) {
+                    case 'rain':
+                        this.initRain(rainIntensity);
+                        break;
+                    case 'snow':
+                        this.initSnow();
+                        break;
+                    case 'clouds':
+                        this.initClouds();
+                        break;
+                }
+                
+                this.startAnimation();
+                
+                const weatherEffects = document.getElementById('weatherEffects');
+                if (weatherEffects) {
+                    weatherEffects.classList.add('show');
+                }
+                
+                log('天气效果已启动:', effect, rainIntensity ? `(${rainIntensity})` : '');
+            }
+            
+            stopEffect() {
+                if (this.animationId) {
+                    cancelAnimationFrame(this.animationId);
+                    this.animationId = null;
+                }
+                
+                this.rainDrops = [];
+                this.snowFlakes = [];
+                this.clouds = [];
+                
+                if (this.ctx) {
+                    this.ctx.clearRect(0, 0, this.width, this.height);
+                }
+                
+                const weatherEffects = document.getElementById('weatherEffects');
+                if (weatherEffects) {
+                    weatherEffects.classList.remove('show');
+                }
+                
+                this.currentEffect = null;
+                this.currentRainIntensity = null;
+            }
+            
+            initRain(intensity) {
+                const config = this.rainConfig[intensity] || this.rainConfig.medium;
+                this.rainDrops = [];
+                
+                for (let i = 0; i < config.count; i++) {
+                    this.rainDrops.push({
+                        x: Math.random() * this.width,
+                        y: Math.random() * this.height,
+                        speed: config.speed + Math.random() * 2,
+                        opacity: config.opacity * (0.7 + Math.random() * 0.3),
+                        width: config.width + Math.random(),
+                        length: config.length + Math.random() * 10
+                    });
+                }
+            }
+            
+            initSnow() {
+                const config = this.snowConfig;
+                this.snowFlakes = [];
+                
+                for (let i = 0; i < config.count; i++) {
+                    this.snowFlakes.push({
+                        x: Math.random() * this.width,
+                        y: Math.random() * this.height,
+                        speed: config.speedRange[0] + Math.random() * (config.speedRange[1] - config.speedRange[0]),
+                        size: config.sizeRange[0] + Math.random() * (config.sizeRange[1] - config.sizeRange[0]),
+                        opacity: config.opacityRange[0] + Math.random() * (config.opacityRange[1] - config.opacityRange[0]),
+                        drift: Math.random() * 2 - 1,
+                        rotation: Math.random() * Math.PI * 2,
+                        rotationSpeed: (Math.random() - 0.5) * 0.05
+                    });
+                }
+            }
+            
+            initClouds() {
+                const config = this.cloudConfig;
+                this.clouds = [];
+                
+                for (let i = 0; i < config.count; i++) {
+                    const cloudWidth = 200 + Math.random() * 300;
+                    const cloudHeight = 80 + Math.random() * 100;
+                    
+                    const circles = [];
+                    const circleCount = 6 + Math.floor(Math.random() * 4);
+                    for (let j = 0; j < circleCount; j++) {
+                        circles.push({
+                            offsetX: Math.random() * cloudWidth,
+                            offsetY: Math.random() * cloudHeight,
+                            radius: 40 + Math.random() * 60
+                        });
+                    }
+                    
+                    this.clouds.push({
+                        x: Math.random() * (this.width + 400) - 400,
+                        y: Math.random() * (this.height * 0.35),
+                        width: cloudWidth,
+                        height: cloudHeight,
+                        speed: config.speed * (0.4 + Math.random() * 0.8),
+                        opacity: config.opacity * (0.7 + Math.random() * 0.3),
+                        circles: circles
+                    });
+                }
+            }
+            
+            startAnimation() {
+                const animate = () => {
+                    if (!this.ctx) return;
+                    
+                    this.ctx.clearRect(0, 0, this.width, this.height);
+                    
+                    switch (this.currentEffect) {
+                        case 'rain':
+                            this.drawRain();
+                            break;
+                        case 'snow':
+                            this.drawSnow();
+                            break;
+                        case 'clouds':
+                            this.drawClouds();
+                            break;
+                    }
+                    
+                    this.animationId = requestAnimationFrame(animate);
+                };
+                
+                animate();
+            }
+            
+            drawRain() {
+                const gradient = this.ctx.createLinearGradient(0, 0, 0, this.height);
+                gradient.addColorStop(0, 'rgba(147, 197, 253, 0)');
+                gradient.addColorStop(1, 'rgba(100, 149, 237, 0.9)');
+                
+                this.rainDrops.forEach(drop => {
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(drop.x, drop.y);
+                    this.ctx.lineTo(drop.x, drop.y + drop.length);
+                    this.ctx.strokeStyle = `rgba(147, 197, 253, ${drop.opacity})`;
+                    this.ctx.lineWidth = drop.width;
+                    this.ctx.lineCap = 'round';
+                    this.ctx.stroke();
+                    
+                    drop.y += drop.speed;
+                    
+                    if (drop.y > this.height) {
+                        drop.y = -drop.length;
+                        drop.x = Math.random() * this.width;
+                    }
+                });
+            }
+            
+            drawSnow() {
+                this.snowFlakes.forEach(flake => {
+                    this.ctx.save();
+                    this.ctx.translate(flake.x, flake.y);
+                    this.ctx.rotate(flake.rotation);
+                    
+                    this.ctx.beginPath();
+                    this.ctx.arc(0, 0, flake.size / 2, 0, Math.PI * 2);
+                    this.ctx.fillStyle = `rgba(255, 255, 255, ${flake.opacity})`;
+                    this.ctx.fill();
+                    
+                    this.ctx.restore();
+                    
+                    flake.y += flake.speed;
+                    flake.x += Math.sin(flake.y * 0.01) * flake.drift;
+                    flake.rotation += flake.rotationSpeed;
+                    
+                    if (flake.y > this.height) {
+                        flake.y = -flake.size;
+                        flake.x = Math.random() * this.width;
+                    }
+                    
+                    if (flake.x < -flake.size) {
+                        flake.x = this.width + flake.size;
+                    } else if (flake.x > this.width + flake.size) {
+                        flake.x = -flake.size;
+                    }
+                });
+            }
+            
+            drawClouds() {
+                this.clouds.forEach(cloud => {
+                    this.ctx.save();
+                    
+                    this.ctx.globalAlpha = cloud.opacity;
+                    
+                    cloud.circles.forEach(circle => {
+                        const cx = cloud.x + circle.offsetX;
+                        const cy = cloud.y + circle.offsetY;
+                        const r = circle.radius;
+                        
+                        const gradient = this.ctx.createRadialGradient(
+                            cx, cy, 0,
+                            cx, cy, r
+                        );
+                        gradient.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
+                        gradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.7)');
+                        gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+                        
+                        this.ctx.fillStyle = gradient;
+                        this.ctx.beginPath();
+                        this.ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                        this.ctx.fill();
+                    });
+                    
+                    this.ctx.restore();
+                    
+                    cloud.x += cloud.speed;
+                    
+                    if (cloud.x > this.width + cloud.width) {
+                        cloud.x = -cloud.width;
+                        cloud.y = Math.random() * (this.height * 0.35);
+                    }
+                });
+            }
+        }
+        
+        let weatherEffectManager = null;
+        
+        function initWeatherEffectManager() {
+            if (!weatherEffectManager) {
+                weatherEffectManager = new WeatherEffectManager();
+                weatherEffectManager.init();
+            }
+            return weatherEffectManager;
+        }
+        
+        let currentWeatherEffect = null;
+        let currentRainIntensity = null;
+
+        function updateWeatherEffects(weather) {
+            const manager = initWeatherEffectManager();
+            if (!manager) {
+                log('天气效果管理器未初始化');
+                return;
+            }
+            
+            let newEffect = null;
+            let newRainIntensity = null;
+            
+            if (isSnowWeather(weather)) {
+                newEffect = 'snow';
+                log('显示下雪效果');
+            } else if (isRainWeather(weather)) {
+                const intensity = getRainIntensity(weather);
+                newRainIntensity = intensity;
+                newEffect = 'rain';
+                
+                if (intensity === 'heavy') {
+                    log('显示大雨效果');
+                } else if (intensity === 'medium') {
+                    log('显示中雨效果');
+                } else {
+                    log('显示小雨效果');
+                }
+            } else if (isCloudWeather(weather)) {
+                newEffect = 'clouds';
+                log('显示多云效果');
+            }
+            
+            const effectChanged = currentWeatherEffect !== newEffect;
+            const intensityChanged = newEffect === 'rain' && currentRainIntensity !== newRainIntensity;
+            
+            if (effectChanged || intensityChanged) {
+                currentWeatherEffect = newEffect;
+                currentRainIntensity = newRainIntensity;
+                
+                if (newEffect) {
+                    manager.startEffect(newEffect, newRainIntensity);
+                } else {
+                    manager.stopEffect();
+                }
+                
+                log('天气效果已切换:', newEffect || '无', newRainIntensity ? `(${newRainIntensity})` : '');
+            }
+        }
+
+        function clearWeatherEffects() {
+            const manager = weatherEffectManager;
+            if (manager) {
+                manager.stopEffect();
+            }
+            
+            currentWeatherEffect = null;
+            log('已清除所有天气效果');
+        }
 
         const MIN_ZOOM = 6;
         const MAX_ZOOM = 12;
@@ -1756,6 +2200,7 @@
                 panel.classList.remove('show');
                 log('天气面板隐藏（透明度渐变）');
             }
+            clearWeatherEffects();
         }
 
         function updateWeatherDisplay(data) {
@@ -1819,6 +2264,8 @@
                     const time = weatherLive.reporttime;
                     timeEl.textContent = time.substring(11, 16) || '--:--';
                 }
+                
+                updateWeatherEffects(weatherLive.weather);
             }
 
             currentWeatherData = data;
