@@ -7,6 +7,7 @@ from typing import List, Optional
 import math
 import os
 import logging
+import httpx
 
 logging.basicConfig(
     level=logging.INFO,
@@ -54,6 +55,7 @@ def find_env_file():
 env_path = find_env_file()
 
 maptiler_key = ""
+amap_key = ""
 env_file_found = False
 env_file_read = False
 key_found_in_file = False
@@ -85,6 +87,12 @@ if env_path:
                         maptiler_key = value
                         key_found_in_file = True
                         logger.info(f"  ✓ 找到 MAPTILER_KEY！")
+                        logger.info(f"  ✓ Key 长度: {len(value)} 字符")
+                        logger.info(f"  ✓ Key 预览: {value[:15]}...")
+                    
+                    if key == "AMAP_KEY":
+                        amap_key = value
+                        logger.info(f"  ✓ 找到 AMAP_KEY！")
                         logger.info(f"  ✓ Key 长度: {len(value)} 字符")
                         logger.info(f"  ✓ Key 预览: {value[:15]}...")
         
@@ -153,6 +161,49 @@ class ScenicSpotResponse(BaseModel):
     total: int
     spots: List[ScenicSpot]
 
+class LocationInfo(BaseModel):
+    province: Optional[str] = None
+    city: Optional[str] = None
+    district: Optional[str] = None
+    formatted_address: Optional[str] = None
+
+class WeatherLive(BaseModel):
+    province: Optional[str] = None
+    city: Optional[str] = None
+    adcode: Optional[str] = None
+    weather: Optional[str] = None
+    temperature: Optional[str] = None
+    winddirection: Optional[str] = None
+    windpower: Optional[str] = None
+    humidity: Optional[str] = None
+    reporttime: Optional[str] = None
+
+class WeatherForecastItem(BaseModel):
+    date: Optional[str] = None
+    week: Optional[str] = None
+    dayweather: Optional[str] = None
+    nightweather: Optional[str] = None
+    daytemp: Optional[str] = None
+    nighttemp: Optional[str] = None
+    daywind: Optional[str] = None
+    nightwind: Optional[str] = None
+    daypower: Optional[str] = None
+    nightpower: Optional[str] = None
+
+class WeatherForecast(BaseModel):
+    city: Optional[str] = None
+    adcode: Optional[str] = None
+    province: Optional[str] = None
+    reporttime: Optional[str] = None
+    casts: List[WeatherForecastItem] = []
+
+class WeatherResponse(BaseModel):
+    success: bool
+    location: Optional[LocationInfo] = None
+    weather_live: Optional[WeatherLive] = None
+    weather_forecast: Optional[WeatherForecast] = None
+    message: Optional[str] = None
+
 def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     R = 6371.0
     lat1_rad = math.radians(lat1)
@@ -168,6 +219,86 @@ def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
     
     distance = R * c
     return round(distance, 2)
+
+AMAP_GEOCODE_REGEO_URL = "https://restapi.amap.com/v3/geocode/regeo"
+AMAP_WEATHER_URL = "https://restapi.amap.com/v3/weather/weatherInfo"
+
+async def get_regeocode(lon: float, lat: float) -> Optional[dict]:
+    if not amap_key:
+        logger.warning("AMAP_KEY 未配置，无法调用逆地理编码接口")
+        return None
+    
+    params = {
+        "key": amap_key,
+        "location": f"{lon},{lat}",
+        "extensions": "base"
+    }
+    
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(AMAP_GEOCODE_REGEO_URL, params=params)
+            data = response.json()
+            
+            if data.get("status") != "1":
+                logger.error(f"逆地理编码接口调用失败: {data.get('info', '未知错误')}")
+                return None
+            
+            regeocode = data.get("regeocode", {})
+            address_component = regeocode.get("addressComponent", {})
+            
+            return {
+                "province": address_component.get("province"),
+                "city": address_component.get("city"),
+                "district": address_component.get("district"),
+                "formatted_address": regeocode.get("formatted_address"),
+                "adcode": address_component.get("adcode")
+            }
+    except Exception as e:
+        logger.error(f"调用逆地理编码接口异常: {e}")
+        return None
+
+async def get_weather(adcode: str, extensions: str = "base") -> Optional[dict]:
+    if not amap_key:
+        logger.warning("AMAP_KEY 未配置，无法调用天气接口")
+        return None
+    
+    params = {
+        "key": amap_key,
+        "city": adcode,
+        "extensions": extensions
+    }
+    
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.get(AMAP_WEATHER_URL, params=params)
+            data = response.json()
+            
+            if data.get("status") != "1":
+                logger.error(f"天气接口调用失败: {data.get('info', '未知错误')}")
+                return None
+            
+            return data
+    except Exception as e:
+        logger.error(f"调用天气接口异常: {e}")
+        return None
+
+def get_best_adcode(location: dict) -> Optional[str]:
+    adcode = location.get("adcode")
+    if adcode:
+        return adcode
+    
+    district = location.get("district")
+    city = location.get("city")
+    province = location.get("province")
+    
+    if district:
+        return district
+    if city:
+        return city
+    if province:
+        return province
+    
+    return None
 
 @app.get("/api/scenic_spots", response_model=ScenicSpotResponse)
 def get_scenic_spots(
@@ -265,6 +396,122 @@ def read_root():
             return f.read()
     logger.warning("  前端页面不存在，返回默认页面")
     return HTMLResponse(content="<h1>3D Map Project</h1><p>Please visit the frontend page</p>")
+
+@app.get("/api/weather", response_model=WeatherResponse)
+async def get_weather_by_location(
+    lat: float = Query(..., description="纬度", example=39.9042),
+    lon: float = Query(..., description="经度", example=116.4074)
+):
+    logger.info("=" * 50)
+    logger.info("收到 /api/weather 请求")
+    logger.info(f"  参数: lat={lat}, lon={lon}")
+    
+    if not amap_key:
+        logger.error("AMAP_KEY 未配置")
+        return WeatherResponse(
+            success=False,
+            message="AMAP_KEY 未配置"
+        )
+    
+    location = await get_regeocode(lon, lat)
+    
+    if not location:
+        logger.error("逆地理编码失败")
+        return WeatherResponse(
+            success=False,
+            message="逆地理编码失败，无法获取位置信息"
+        )
+    
+    logger.info(f"  逆地理编码结果:")
+    logger.info(f"    省份: {location.get('province')}")
+    logger.info(f"    城市: {location.get('city')}")
+    logger.info(f"    区县: {location.get('district')}")
+    logger.info(f"    地址: {location.get('formatted_address')}")
+    logger.info(f"    行政区划代码: {location.get('adcode')}")
+    
+    adcode = get_best_adcode(location)
+    
+    if not adcode:
+        logger.error("无法获取有效的行政区划代码")
+        return WeatherResponse(
+            success=False,
+            message="无法获取有效的行政区划代码",
+            location=LocationInfo(
+                province=location.get("province"),
+                city=location.get("city"),
+                district=location.get("district"),
+                formatted_address=location.get("formatted_address")
+            )
+        )
+    
+    logger.info(f"  使用行政区划代码: {adcode}")
+    
+    weather_base = await get_weather(adcode, extensions="base")
+    weather_all = await get_weather(adcode, extensions="all")
+    
+    weather_live = None
+    weather_forecast = None
+    
+    if weather_base and weather_base.get("lives"):
+        lives = weather_base["lives"]
+        if lives and len(lives) > 0:
+            live = lives[0]
+            weather_live = WeatherLive(
+                province=live.get("province"),
+                city=live.get("city"),
+                adcode=live.get("adcode"),
+                weather=live.get("weather"),
+                temperature=live.get("temperature"),
+                winddirection=live.get("winddirection"),
+                windpower=live.get("windpower"),
+                humidity=live.get("humidity"),
+                reporttime=live.get("reporttime")
+            )
+            logger.info(f"  实时天气: {weather_live.weather}, 温度: {weather_live.temperature}°C")
+    
+    if weather_all and weather_all.get("forecasts"):
+        forecasts = weather_all["forecasts"]
+        if forecasts and len(forecasts) > 0:
+            forecast = forecasts[0]
+            casts = []
+            if forecast.get("casts"):
+                for cast in forecast["casts"]:
+                    casts.append(WeatherForecastItem(
+                        date=cast.get("date"),
+                        week=cast.get("week"),
+                        dayweather=cast.get("dayweather"),
+                        nightweather=cast.get("nightweather"),
+                        daytemp=cast.get("daytemp"),
+                        nighttemp=cast.get("nighttemp"),
+                        daywind=cast.get("daywind"),
+                        nightwind=cast.get("nightwind"),
+                        daypower=cast.get("daypower"),
+                        nightpower=cast.get("nightpower")
+                    ))
+            
+            weather_forecast = WeatherForecast(
+                city=forecast.get("city"),
+                adcode=forecast.get("adcode"),
+                province=forecast.get("province"),
+                reporttime=forecast.get("reporttime"),
+                casts=casts
+            )
+            logger.info(f"  预报天数: {len(casts)} 天")
+    
+    logger.info("=" * 50)
+    
+    return WeatherResponse(
+        success=True,
+        location=LocationInfo(
+            province=location.get("province"),
+            city=location.get("city"),
+            district=location.get("district"),
+            formatted_address=location.get("formatted_address")
+        ),
+        weather_live=weather_live,
+        weather_forecast=weather_forecast,
+        message="获取成功"
+    )
 
 @app.on_event("startup")
 async def startup_event():
