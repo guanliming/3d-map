@@ -399,119 +399,134 @@ def read_root():
 
 @app.get("/api/weather", response_model=WeatherResponse)
 async def get_weather_by_location(
-    lat: float = Query(..., description="纬度", example=39.9042),
-    lon: float = Query(..., description="经度", example=116.4074)
+    lat: float = Query(..., description="纬度", examples=39.9042),
+    lon: float = Query(..., description="经度", examples=116.4074)
 ):
-    logger.info("=" * 50)
-    logger.info("收到 /api/weather 请求")
-    logger.info(f"  参数: lat={lat}, lon={lon}")
-    
-    if not amap_key:
-        logger.error("AMAP_KEY 未配置")
+    try:
+        logger.info("=" * 50)
+        logger.info("收到 /api/weather 请求")
+        logger.info(f"  参数: lat={lat}, lon={lon}")
+        
+        if not amap_key:
+            logger.error("AMAP_KEY 未配置")
+            return WeatherResponse(
+                success=False,
+                message="AMAP_KEY 未配置"
+            )
+        
+        logger.info(f"  调用逆地理编码接口...")
+        location = await get_regeocode(lon, lat)
+        
+        if not location:
+            logger.error("逆地理编码失败")
+            return WeatherResponse(
+                success=False,
+                message="逆地理编码失败，无法获取位置信息"
+            )
+        
+        logger.info(f"  逆地理编码结果:")
+        logger.info(f"    省份: {location.get('province')}")
+        logger.info(f"    城市: {location.get('city')}")
+        logger.info(f"    区县: {location.get('district')}")
+        logger.info(f"    地址: {location.get('formatted_address')}")
+        logger.info(f"    行政区划代码: {location.get('adcode')}")
+        
+        adcode = get_best_adcode(location)
+        
+        if not adcode:
+            logger.error("无法获取有效的行政区划代码")
+            return WeatherResponse(
+                success=False,
+                message="无法获取有效的行政区划代码",
+                location=LocationInfo(
+                    province=location.get("province"),
+                    city=location.get("city"),
+                    district=location.get("district"),
+                    formatted_address=location.get("formatted_address")
+                )
+            )
+        
+        logger.info(f"  使用行政区划代码: {adcode}")
+        
+        logger.info(f"  调用天气接口 (实时)...")
+        weather_base = await get_weather(adcode, extensions="base")
+        logger.info(f"  实时天气响应: {weather_base}")
+        
+        logger.info(f"  调用天气接口 (预报)...")
+        weather_all = await get_weather(adcode, extensions="all")
+        logger.info(f"  预报天气响应: {weather_all}")
+        
+        weather_live = None
+        weather_forecast = None
+        
+        if weather_base and weather_base.get("lives"):
+            lives = weather_base["lives"]
+            if lives and len(lives) > 0:
+                live = lives[0]
+                weather_live = WeatherLive(
+                    province=live.get("province"),
+                    city=live.get("city"),
+                    adcode=live.get("adcode"),
+                    weather=live.get("weather"),
+                    temperature=live.get("temperature"),
+                    winddirection=live.get("winddirection"),
+                    windpower=live.get("windpower"),
+                    humidity=live.get("humidity"),
+                    reporttime=live.get("reporttime")
+                )
+                logger.info(f"  实时天气: {weather_live.weather}, 温度: {weather_live.temperature}°C")
+        
+        if weather_all and weather_all.get("forecasts"):
+            forecasts = weather_all["forecasts"]
+            if forecasts and len(forecasts) > 0:
+                forecast = forecasts[0]
+                casts = []
+                if forecast.get("casts"):
+                    for cast in forecast["casts"]:
+                        casts.append(WeatherForecastItem(
+                            date=cast.get("date"),
+                            week=cast.get("week"),
+                            dayweather=cast.get("dayweather"),
+                            nightweather=cast.get("nightweather"),
+                            daytemp=cast.get("daytemp"),
+                            nighttemp=cast.get("nighttemp"),
+                            daywind=cast.get("daywind"),
+                            nightwind=cast.get("nightwind"),
+                            daypower=cast.get("daypower"),
+                            nightpower=cast.get("nightpower")
+                        ))
+                
+                weather_forecast = WeatherForecast(
+                    city=forecast.get("city"),
+                    adcode=forecast.get("adcode"),
+                    province=forecast.get("province"),
+                    reporttime=forecast.get("reporttime"),
+                    casts=casts
+                )
+                logger.info(f"  预报天数: {len(casts)} 天")
+        
+        logger.info("=" * 50)
+        
         return WeatherResponse(
-            success=False,
-            message="AMAP_KEY 未配置"
-        )
-    
-    location = await get_regeocode(lon, lat)
-    
-    if not location:
-        logger.error("逆地理编码失败")
-        return WeatherResponse(
-            success=False,
-            message="逆地理编码失败，无法获取位置信息"
-        )
-    
-    logger.info(f"  逆地理编码结果:")
-    logger.info(f"    省份: {location.get('province')}")
-    logger.info(f"    城市: {location.get('city')}")
-    logger.info(f"    区县: {location.get('district')}")
-    logger.info(f"    地址: {location.get('formatted_address')}")
-    logger.info(f"    行政区划代码: {location.get('adcode')}")
-    
-    adcode = get_best_adcode(location)
-    
-    if not adcode:
-        logger.error("无法获取有效的行政区划代码")
-        return WeatherResponse(
-            success=False,
-            message="无法获取有效的行政区划代码",
+            success=True,
             location=LocationInfo(
                 province=location.get("province"),
                 city=location.get("city"),
                 district=location.get("district"),
                 formatted_address=location.get("formatted_address")
-            )
+            ),
+            weather_live=weather_live,
+            weather_forecast=weather_forecast,
+            message="获取成功"
         )
-    
-    logger.info(f"  使用行政区划代码: {adcode}")
-    
-    weather_base = await get_weather(adcode, extensions="base")
-    weather_all = await get_weather(adcode, extensions="all")
-    
-    weather_live = None
-    weather_forecast = None
-    
-    if weather_base and weather_base.get("lives"):
-        lives = weather_base["lives"]
-        if lives and len(lives) > 0:
-            live = lives[0]
-            weather_live = WeatherLive(
-                province=live.get("province"),
-                city=live.get("city"),
-                adcode=live.get("adcode"),
-                weather=live.get("weather"),
-                temperature=live.get("temperature"),
-                winddirection=live.get("winddirection"),
-                windpower=live.get("windpower"),
-                humidity=live.get("humidity"),
-                reporttime=live.get("reporttime")
-            )
-            logger.info(f"  实时天气: {weather_live.weather}, 温度: {weather_live.temperature}°C")
-    
-    if weather_all and weather_all.get("forecasts"):
-        forecasts = weather_all["forecasts"]
-        if forecasts and len(forecasts) > 0:
-            forecast = forecasts[0]
-            casts = []
-            if forecast.get("casts"):
-                for cast in forecast["casts"]:
-                    casts.append(WeatherForecastItem(
-                        date=cast.get("date"),
-                        week=cast.get("week"),
-                        dayweather=cast.get("dayweather"),
-                        nightweather=cast.get("nightweather"),
-                        daytemp=cast.get("daytemp"),
-                        nighttemp=cast.get("nighttemp"),
-                        daywind=cast.get("daywind"),
-                        nightwind=cast.get("nightwind"),
-                        daypower=cast.get("daypower"),
-                        nightpower=cast.get("nightpower")
-                    ))
-            
-            weather_forecast = WeatherForecast(
-                city=forecast.get("city"),
-                adcode=forecast.get("adcode"),
-                province=forecast.get("province"),
-                reporttime=forecast.get("reporttime"),
-                casts=casts
-            )
-            logger.info(f"  预报天数: {len(casts)} 天")
-    
-    logger.info("=" * 50)
-    
-    return WeatherResponse(
-        success=True,
-        location=LocationInfo(
-            province=location.get("province"),
-            city=location.get("city"),
-            district=location.get("district"),
-            formatted_address=location.get("formatted_address")
-        ),
-        weather_live=weather_live,
-        weather_forecast=weather_forecast,
-        message="获取成功"
-    )
+    except Exception as e:
+        logger.error(f"处理 /api/weather 请求时发生异常: {e}")
+        import traceback
+        traceback.print_exc()
+        return WeatherResponse(
+            success=False,
+            message=f"服务器内部错误: {str(e)}"
+        )
 
 @app.on_event("startup")
 async def startup_event():

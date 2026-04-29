@@ -1613,7 +1613,15 @@
                         showZoomHint();
                     }
                     
-                    handleWeatherMapMove();
+                    const weatherPanel = document.getElementById('weatherPanel');
+                    if (zoom <= WEATHER_MIN_ZOOM) {
+                        log('缩放级别 <= 12，隐藏天气面板');
+                        if (weatherPanel && weatherPanel.classList.contains('show')) {
+                            hideWeatherPanel();
+                        }
+                    } else {
+                        log('缩放级别 > 12，天气面板可显示');
+                    }
                 });
                 
                 map.on('pitch', () => {
