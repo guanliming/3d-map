@@ -8,6 +8,7 @@ import math
 import os
 import logging
 import httpx
+from datetime import datetime, timedelta
 
 logging.basicConfig(
     level=logging.INFO,
@@ -148,6 +149,24 @@ MOCK_SPOTS = [
     {"id": 10, "name": "上海东方明珠", "lat": 31.2397, "lon": 121.4998, "rating": 4.8, "image": "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=oriental%20pearl%20tower%20shanghai%20landmark&image_size=square"},
 ]
 
+def get_mock_topics():
+    now = datetime.now()
+    
+    return [
+        {"id": 1, "title": "外滩夜景太美了！", "content": "晚上在外滩看陆家嘴的夜景，灯光璀璨，人很多但很热闹。推荐大家晚上来！", "lat": 31.2304, "lon": 121.4737, "created_at": (now - timedelta(hours=2)).isoformat(), "hot_score": 95.5, "user_name": "旅行爱好者", "user_avatar": "👤", "like_count": 1234, "comment_count": 89, "share_count": 56, "tags": ["夜景", "外滩", "推荐"], "image_url": "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=shanghai%20bund%20night%20view%20lights&image_size=square"},
+        {"id": 2, "title": "南京东路步行街人山人海", "content": "周末来南京路，人真的好多！不过逛街的氛围很好，各种老字号和现代商场都有。", "lat": 31.2350, "lon": 121.4750, "created_at": (now - timedelta(hours=5)).isoformat(), "hot_score": 88.2, "user_name": "逛街达人", "user_avatar": "👤", "like_count": 856, "comment_count": 45, "share_count": 23, "tags": ["购物", "南京路", "周末"], "image_url": None},
+        {"id": 3, "title": "豫园的小笼包真不错", "content": "今天在豫园吃了南翔小笼包，皮薄馅多，汤汁鲜美！虽然排队排了很久，但值得。", "lat": 31.2270, "lon": 121.4820, "created_at": (now - timedelta(hours=8)).isoformat(), "hot_score": 92.0, "user_name": "美食探索家", "user_avatar": "👤", "like_count": 2100, "comment_count": 156, "share_count": 89, "tags": ["美食", "小笼包", "豫园"], "image_url": "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=shanghai%20xiaolongbao%20soup%20dumplings&image_size=square"},
+        {"id": 4, "title": "陆家嘴高楼大厦真震撼", "content": "站在陆家嘴天桥上，周围都是摩天大楼，感觉自己很渺小。上海的天际线真的很壮观！", "lat": 31.2397, "lon": 121.4998, "created_at": (now - timedelta(days=1)).isoformat(), "hot_score": 85.0, "user_name": "城市摄影师", "user_avatar": "👤", "like_count": 567, "comment_count": 34, "share_count": 18, "tags": ["建筑", "陆家嘴", "天际线"], "image_url": "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=shanghai%20lujiazui%20skyscrapers&image_size=square"},
+        {"id": 5, "title": "田子坊的文艺气息", "content": "田子坊里有很多有趣的小店和画廊，适合文艺青年来逛逛。弄堂里的老上海风情很有味道。", "lat": 31.2100, "lon": 121.4550, "created_at": (now - timedelta(days=2)).isoformat(), "hot_score": 78.5, "user_name": "文艺青年", "user_avatar": "👤", "like_count": 432, "comment_count": 28, "share_count": 15, "tags": ["文艺", "田子坊", "弄堂"], "image_url": None},
+        {"id": 6, "title": "迪士尼乐园一日游", "content": "今天去了迪士尼，人真的很多！不过城堡真的很漂亮，烟花秀也很精彩。建议大家工作日来。", "lat": 31.1400, "lon": 121.6500, "created_at": (now - timedelta(days=3)).isoformat(), "hot_score": 90.0, "user_name": "童话梦想家", "user_avatar": "👤", "like_count": 3200, "comment_count": 245, "share_count": 178, "tags": ["迪士尼", "乐园", "烟花"], "image_url": "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=shanghai%20disneyland%20castle%20fireworks&image_size=square"},
+        {"id": 7, "title": "思南路的老洋房", "content": "思南路上有很多漂亮的老洋房，梧桐树掩映下很有氛围。适合散步拍照。", "lat": 31.2150, "lon": 121.4600, "created_at": (now - timedelta(days=4)).isoformat(), "hot_score": 65.0, "user_name": "历史爱好者", "user_avatar": "👤", "like_count": 234, "comment_count": 18, "share_count": 12, "tags": ["历史", "洋房", "思南路"], "image_url": None},
+        {"id": 8, "title": "武康路打卡", "content": "武康大楼真的很有特色，网红打卡点人很多。附近还有很多咖啡馆，适合悠闲的下午。", "lat": 31.2050, "lon": 121.4400, "created_at": (now - timedelta(days=5)).isoformat(), "hot_score": 72.0, "user_name": "咖啡爱好者", "user_avatar": "👤", "like_count": 567, "comment_count": 42, "share_count": 25, "tags": ["咖啡", "武康路", "打卡"], "image_url": "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=shanghai%20wukang%20road%20building&image_size=square"},
+        {"id": 9, "title": "朱家角古镇一日游", "content": "周末去了朱家角，古镇很有江南水乡的感觉。坐船游览很惬意，小吃也不错。", "lat": 31.1100, "lon": 121.0500, "created_at": (now - timedelta(days=6)).isoformat(), "hot_score": 60.0, "user_name": "周末旅行家", "user_avatar": "👤", "like_count": 345, "comment_count": 23, "share_count": 15, "tags": ["古镇", "水乡", "朱家角"], "image_url": None},
+        {"id": 10, "title": "外滩观光隧道体验", "content": "外滩观光隧道其实就是个灯光秀，比较适合小朋友。如果想看江景还是推荐坐轮渡。", "lat": 31.2350, "lon": 121.4800, "created_at": (now - timedelta(days=7)).isoformat(), "hot_score": 55.0, "user_name": "体验达人", "user_avatar": "👤", "like_count": 189, "comment_count": 15, "share_count": 8, "tags": ["观光", "隧道", "体验"], "image_url": None},
+        {"id": 11, "title": "上海博物馆值得一去", "content": "上海博物馆免费开放，馆藏丰富。青铜器和陶瓷馆特别值得看，建议预留3-4小时。", "lat": 31.2280, "lon": 121.4720, "created_at": (now - timedelta(hours=3)).isoformat(), "hot_score": 87.0, "user_name": "文化探索者", "user_avatar": "👤", "like_count": 1567, "comment_count": 98, "share_count": 67, "tags": ["博物馆", "文化", "免费"], "image_url": "https://trae-api-cn.mchost.guru/api/ide/v1/text_to_image?prompt=shanghai%20museum%20interior&image_size=square"},
+        {"id": 12, "title": "新天地的夜生活", "content": "新天地晚上很热闹，有很多酒吧和餐厅。石库门建筑改造的很有特色，适合朋友小聚。", "lat": 31.2180, "lon": 121.4700, "created_at": (now - timedelta(days=2)).isoformat(), "hot_score": 82.0, "user_name": "夜猫子", "user_avatar": "👤", "like_count": 890, "comment_count": 67, "share_count": 34, "tags": ["夜生活", "酒吧", "新天地"], "image_url": None},
+    ]
+
 class ScenicSpot(BaseModel):
     id: int
     name: str
@@ -203,6 +222,26 @@ class WeatherResponse(BaseModel):
     weather_live: Optional[WeatherLive] = None
     weather_forecast: Optional[WeatherForecast] = None
     message: Optional[str] = None
+
+class Topic(BaseModel):
+    id: int
+    title: str
+    content: str
+    lat: float
+    lon: float
+    created_at: str
+    hot_score: float
+    user_name: str
+    user_avatar: str
+    like_count: int
+    comment_count: int
+    share_count: int
+    tags: List[str] = []
+    image_url: Optional[str] = None
+
+class TopicResponse(BaseModel):
+    total: int
+    topics: List[Topic]
 
 def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     R = 6371.0
@@ -550,6 +589,101 @@ async def get_weather_by_location(
             message=f"服务器内部错误: {str(e)}"
         )
 
+@app.get("/api/topics", response_model=TopicResponse)
+def get_topics(
+    lat: Optional[float] = Query(None, description="纬度", example=31.2304),
+    lon: Optional[float] = Query(None, description="经度", example=121.4737),
+    radius: Optional[float] = Query(1000, description="搜索半径（米）", example=1000),
+    sw_lat: Optional[float] = Query(None, description="视口西南角纬度"),
+    sw_lon: Optional[float] = Query(None, description="视口西南角经度"),
+    ne_lat: Optional[float] = Query(None, description="视口东北角纬度"),
+    ne_lon: Optional[float] = Query(None, description="视口东北角经度"),
+):
+    logger.info("=" * 40)
+    logger.info("收到 /api/topics 请求")
+    logger.info(f"  参数: lat={lat}, lon={lon}, radius={radius}米")
+    logger.info(f"  视口: sw=({sw_lat},{sw_lon}), ne=({ne_lat},{ne_lon})")
+    
+    all_topics = get_mock_topics()
+    
+    if lat is None or lon is None:
+        logger.warning("  未提供经纬度参数，返回所有话题")
+        topics = all_topics
+    else:
+        radius_km = radius / 1000.0
+        logger.info(f"  搜索中心: 纬度 {lat}, 经度 {lon}")
+        logger.info(f"  搜索半径: {radius} 米 ({radius_km} 公里)")
+        
+        topics_in_range = []
+        for topic in all_topics:
+            distance = haversine_distance(lat, lon, topic["lat"], topic["lon"])
+            if distance <= radius_km:
+                topic_with_dist = topic.copy()
+                topic_with_dist["distance_km"] = distance
+                topics_in_range.append(topic_with_dist)
+        
+        topics = topics_in_range
+    
+    if sw_lat is not None and sw_lon is not None and ne_lat is not None and ne_lon is not None:
+        topics = [
+            t for t in topics
+            if sw_lat <= t["lat"] <= ne_lat and sw_lon <= t["lon"] <= ne_lon
+        ]
+        logger.info(f"  视口筛选后: {len(topics)} 个话题")
+    
+    logger.info("-" * 40)
+    logger.info("  话题时间范围筛选:")
+    
+    now = datetime.now()
+    today_topics = []
+    recent_topics = []
+    older_topics = []
+    
+    for topic in topics:
+        created_at = datetime.fromisoformat(topic["created_at"])
+        days_diff = (now - created_at).total_seconds() / (24 * 3600)
+        
+        if days_diff <= 1:
+            today_topics.append(topic)
+            logger.info(f"    ✓ 当天: {topic['title']} ({days_diff:.1f}天前)")
+        elif days_diff <= 3:
+            recent_topics.append(topic)
+            logger.info(f"    ○ 2-3天: {topic['title']} ({days_diff:.1f}天前)")
+        elif days_diff <= 7:
+            older_topics.append(topic)
+            logger.info(f"    △ 4-7天: {topic['title']} ({days_diff:.1f}天前)")
+    
+    logger.info("-" * 40)
+    logger.info(f"  当天话题: {len(today_topics)} 个")
+    logger.info(f"  2-3天话题: {len(recent_topics)} 个")
+    logger.info(f"  4-7天话题: {len(older_topics)} 个")
+    
+    final_topics = []
+    
+    if today_topics:
+        logger.info("  使用当天话题")
+        final_topics = today_topics
+    elif recent_topics:
+        logger.info("  当天无话题，使用2-3天话题（半透明）")
+        final_topics = recent_topics
+    elif older_topics:
+        logger.info("  2-3天无话题，使用4-7天话题（更透明）")
+        final_topics = older_topics
+    
+    final_topics.sort(key=lambda x: (-x["hot_score"], x["created_at"]))
+    
+    logger.info("-" * 40)
+    logger.info("  按热度和时间排序:")
+    for i, topic in enumerate(final_topics, 1):
+        logger.info(f"    {i}. {topic['title']} - 热度: {topic['hot_score']}")
+    
+    logger.info("=" * 40)
+    
+    return TopicResponse(
+        total=len(final_topics),
+        topics=[Topic(**t) for t in final_topics]
+    )
+
 @app.on_event("startup")
 async def startup_event():
     logger.info("=" * 50)
@@ -561,6 +695,7 @@ async def startup_event():
     logger.info("  前端功能:")
     logger.info("    ✓ 调试面板（右上角）- 显示实时缩放级别和状态")
     logger.info("    ✓ 控制台日志 - 按 F12 打开开发者工具查看")
+    logger.info("    ✓ 探索模式 - 查看周围用户发布的话题")
     logger.info("=" * 50)
     logger.info("  景点数据预览:")
     for i, spot in enumerate(MOCK_SPOTS[:5], 1):

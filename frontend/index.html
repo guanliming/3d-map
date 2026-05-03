@@ -322,6 +322,175 @@
             background: rgba(102, 126, 234, 0.8);
         }
         
+        .explore-toggle-btn {
+            position: absolute;
+            top: 10px;
+            left: 180px;
+            z-index: 101;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: background 0.2s;
+        }
+        
+        .explore-toggle-btn:hover {
+            background: rgba(0, 0, 0, 0.9);
+        }
+        
+        .explore-toggle-btn .mode-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #a0aec0;
+        }
+        
+        .explore-toggle-btn.explore-active .mode-indicator {
+            background: #48bb78;
+        }
+        
+        .topic-marker {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        
+        .topic-marker:hover {
+            transform: scale(1.1);
+        }
+        
+        .topic-icon {
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+            font-size: 18px;
+        }
+        
+        .topic-icon.recent {
+            background: linear-gradient(135deg, #ed8936 0%, #dd6b20 100%);
+            box-shadow: 0 2px 8px rgba(237, 137, 54, 0.4);
+        }
+        
+        .topic-icon.older {
+            background: linear-gradient(135deg, #a0aec0 0%, #718096 100%);
+            box-shadow: 0 2px 8px rgba(160, 174, 192, 0.4);
+        }
+        
+        .topic-popup {
+            max-width: 320px;
+        }
+        
+        .topic-popup-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        
+        .topic-popup-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+        }
+        
+        .topic-popup-user {
+            font-weight: 600;
+            font-size: 14px;
+        }
+        
+        .topic-popup-time {
+            font-size: 12px;
+            color: #6b7280;
+        }
+        
+        .topic-popup-title {
+            font-weight: 600;
+            font-size: 15px;
+            margin-bottom: 6px;
+        }
+        
+        .topic-popup-content {
+            font-size: 13px;
+            color: #374151;
+            line-height: 1.5;
+            margin-bottom: 10px;
+        }
+        
+        .topic-popup-image {
+            width: 100%;
+            height: 160px;
+            object-fit: cover;
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+        
+        .topic-popup-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 10px;
+        }
+        
+        .topic-tag {
+            padding: 4px 10px;
+            background: rgba(102, 126, 234, 0.1);
+            color: #667eea;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+        
+        .topic-popup-stats {
+            display: flex;
+            gap: 16px;
+            font-size: 12px;
+            color: #6b7280;
+            border-top: 1px solid #e5e7eb;
+            padding-top: 10px;
+        }
+        
+        .topic-stat {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .explore-hint {
+            position: absolute;
+            top: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(102, 126, 234, 0.9);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            z-index: 50;
+            display: none;
+        }
+        
+        .explore-hint.show {
+            display: block;
+        }
+        
         .weather-panel {
             position: absolute;
             top: 10px;
@@ -453,6 +622,11 @@
             <span id="modeLabel">2D 视图</span>
         </button>
         
+        <button id="exploreToggleBtn" class="explore-toggle-btn" onclick="toggleExploreMode()">
+            <span class="mode-indicator" id="exploreIndicator"></span>
+            <span id="exploreLabel">探索模式</span>
+        </button>
+        
         <div id="viewControls" class="view-controls">
             <div style="margin-bottom: 4px; color: #a0aec0; font-size: 11px; padding-left: 4px;">俯仰角度</div>
             <button class="control-btn" onclick="setPitch(0)">平视</button>
@@ -467,6 +641,10 @@
         
         <div id="pitchHint" class="pitch-hint">
             按住 Ctrl + 鼠标右键拖动可调整视角
+        </div>
+        
+        <div id="exploreHint" class="explore-hint">
+            放大地图（缩放级别 > 15）以查看周围话题
         </div>
         
         <button id="toggleDebugBtn" class="toggle-debug-btn" onclick="toggleDebug()">🔧 调试</button>
@@ -599,6 +777,15 @@
             city: null,
             district: null
         };
+        
+        let isExploreMode = false;
+        let topicMarkers = [];
+        let topicData = [];
+        let exploreDebounceTimer = null;
+        
+        const EXPLORE_MIN_ZOOM = 15;
+        const TOPIC_REGION_RADIUS_METERS = 500;
+        const TOPIC_PER_REGION = 3;
         let isWeatherLoading = false;
         let currentWeatherData = null;
 
@@ -1331,6 +1518,344 @@
             setMapStatus(is3DMode ? '已切换到 3D 视图' : '已切换到 2D 视图', 'ok');
         }
 
+        function toggleExploreMode() {
+            if (!map) {
+                log('地图尚未初始化，无法切换探索模式');
+                return;
+            }
+
+            isExploreMode = !isExploreMode;
+            log('切换探索模式:', isExploreMode ? '开启' : '关闭');
+
+            const toggleBtn = document.getElementById('exploreToggleBtn');
+            const modeLabel = document.getElementById('exploreLabel');
+
+            if (isExploreMode) {
+                toggleBtn.classList.add('explore-active');
+                modeLabel.textContent = '探索中';
+                setMapStatus('探索模式已开启', 'ok');
+                
+                const zoom = map.getZoom();
+                if (zoom <= EXPLORE_MIN_ZOOM) {
+                    showExploreHint();
+                } else {
+                    handleExploreMapMove();
+                }
+            } else {
+                toggleBtn.classList.remove('explore-active');
+                modeLabel.textContent = '探索模式';
+                clearTopicMarkers();
+                setMapStatus('探索模式已关闭', 'ok');
+            }
+
+            updateDebugPanel();
+        }
+
+        function showExploreHint() {
+            const hint = document.getElementById('exploreHint');
+            hint.classList.add('show');
+            
+            setTimeout(() => {
+                hint.classList.remove('show');
+            }, 5000);
+        }
+
+        function getTopicTimeCategory(createdAt) {
+            const now = new Date();
+            const created = new Date(createdAt);
+            const diffMs = now - created;
+            const diffDays = diffMs / (24 * 60 * 60 * 1000);
+            
+            if (diffDays <= 1) {
+                return 'today';
+            } else if (diffDays <= 3) {
+                return 'recent';
+            } else if (diffDays <= 7) {
+                return 'older';
+            }
+            return 'older';
+        }
+
+        function formatTimeAgo(createdAt) {
+            const now = new Date();
+            const created = new Date(createdAt);
+            const diffMs = now - created;
+            const diffHours = diffMs / (60 * 60 * 1000);
+            const diffDays = diffMs / (24 * 60 * 60 * 1000);
+            
+            if (diffHours < 1) {
+                const minutes = Math.floor(diffHours * 60);
+                return `${minutes}分钟前`;
+            } else if (diffHours < 24) {
+                const hours = Math.floor(diffHours);
+                return `${hours}小时前`;
+            } else if (diffDays < 7) {
+                const days = Math.floor(diffDays);
+                return `${days}天前`;
+            } else {
+                return created.toLocaleDateString('zh-CN');
+            }
+        }
+
+        function haversineDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371.0;
+            const lat1Rad = Math.PI * lat1 / 180;
+            const lon1Rad = Math.PI * lon1 / 180;
+            const lat2Rad = Math.PI * lat2 / 180;
+            const lon2Rad = Math.PI * lon2 / 180;
+            
+            const dlon = lon2Rad - lon1Rad;
+            const dlat = lat2Rad - lat1Rad;
+            
+            const a = Math.sin(dlat / 2)**2 + Math.cos(lat1Rad) * Math.cos(lat2Rad) * Math.sin(dlon / 2)**2;
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            
+            const distance = R * c;
+            return distance;
+        }
+
+        function metersToLatitudeOffset(meters) {
+            return meters / 111000;
+        }
+
+        function metersToLongitudeOffset(meters, latitude) {
+            const latRad = Math.PI * latitude / 180;
+            return meters / (111000 * Math.cos(latRad));
+        }
+
+        function groupTopicsByRegion(topics, centerLat, centerLon) {
+            const regionRadiusKm = TOPIC_REGION_RADIUS_METERS / 1000;
+            
+            const regions = {};
+            
+            topics.forEach(topic => {
+                const distance = haversineDistance(centerLat, centerLon, topic.lat, topic.lon);
+                
+                const regionKey = Math.floor(distance / regionRadiusKm);
+                
+                if (!regions[regionKey]) {
+                    regions[regionKey] = [];
+                }
+                regions[regionKey].push({
+                    ...topic,
+                    distance_km: distance,
+                    time_category: getTopicTimeCategory(topic.created_at)
+                });
+            });
+            
+            const result = {};
+            for (const [regionKey, regionTopics] of Object.entries(regions)) {
+                regionTopics.sort((a, b) => {
+                    const timeOrder = { 'today': 0, 'recent': 1, 'older': 2 };
+                    const timeDiff = timeOrder[a.time_category] - timeOrder[b.time_category];
+                    if (timeDiff !== 0) return timeDiff;
+                    
+                    if (b.hot_score !== a.hot_score) {
+                        return b.hot_score - a.hot_score;
+                    }
+                    
+                    return new Date(b.created_at) - new Date(a.created_at);
+                });
+                
+                result[regionKey] = regionTopics.slice(0, TOPIC_PER_REGION);
+            }
+            
+            return result;
+        }
+
+        function clearTopicMarkers() {
+            log('清除话题标记, 当前数量:', topicMarkers.length);
+            topicMarkers.forEach(marker => marker.remove());
+            topicMarkers = [];
+            topicData = [];
+        }
+
+        function addTopicMarker(topic) {
+            const el = document.createElement('div');
+            el.className = 'topic-marker';
+            
+            const timeCategory = getTopicTimeCategory(topic.created_at);
+            
+            let opacity = 1;
+            let iconClass = 'topic-icon';
+            
+            if (timeCategory === 'recent') {
+                opacity = 0.7;
+                iconClass += ' recent';
+            } else if (timeCategory === 'older') {
+                opacity = 0.4;
+                iconClass += ' older';
+            }
+            
+            el.style.opacity = opacity;
+            
+            const markerIcon = document.createElement('div');
+            markerIcon.className = iconClass;
+            markerIcon.innerHTML = '💬';
+            el.appendChild(markerIcon);
+            
+            let imageHtml = '';
+            if (topic.image_url) {
+                imageHtml = `<img src="${topic.image_url}" class="topic-popup-image" alt="话题图片" />`;
+            }
+            
+            let tagsHtml = '';
+            if (topic.tags && topic.tags.length > 0) {
+                tagsHtml = '<div class="topic-popup-tags">';
+                topic.tags.forEach(tag => {
+                    tagsHtml += `<span class="topic-tag">${tag}</span>`;
+                });
+                tagsHtml += '</div>';
+            }
+            
+            const timeAgo = formatTimeAgo(topic.created_at);
+            
+            const popupContent = `
+                <div class="topic-popup">
+                    <div class="topic-popup-header">
+                        <div class="topic-popup-avatar">${topic.user_avatar || '👤'}</div>
+                        <div>
+                            <div class="topic-popup-user">${topic.user_name}</div>
+                            <div class="topic-popup-time">${timeAgo}</div>
+                        </div>
+                    </div>
+                    ${imageHtml}
+                    <div class="topic-popup-title">${topic.title}</div>
+                    <div class="topic-popup-content">${topic.content}</div>
+                    ${tagsHtml}
+                    <div class="topic-popup-stats">
+                        <span class="topic-stat">❤️ ${topic.like_count}</span>
+                        <span class="topic-stat">💬 ${topic.comment_count}</span>
+                        <span class="topic-stat">🔗 ${topic.share_count}</span>
+                    </div>
+                </div>
+            `;
+            
+            const popup = new maplibregl.Popup({
+                offset: 25,
+                closeButton: true,
+                closeOnClick: false
+            }).setHTML(popupContent);
+            
+            const marker = new maplibregl.Marker(el)
+                .setLngLat([topic.lon, topic.lat])
+                .setPopup(popup)
+                .addTo(map);
+            
+            topicMarkers.push(marker);
+            log('话题标记已添加:', topic.title, '时间类别:', timeCategory, '透明度:', opacity);
+        }
+
+        async function loadTopics(lat, lon, radiusMeters) {
+            log('='.repeat(40));
+            log('加载话题数据');
+            log('='.repeat(40));
+            log('参数:');
+            log('  - 纬度:', lat);
+            log('  - 经度:', lon);
+            log('  - 半径:', radiusMeters, '米');
+            
+            try {
+                const bounds = map.getBounds();
+                let url = `/api/topics?lat=${lat}&lon=${lon}&radius=${radiusMeters}`;
+                
+                if (bounds) {
+                    const sw = bounds.getSouthWest();
+                    const ne = bounds.getNorthEast();
+                    url += `&sw_lat=${sw.lat}&sw_lon=${sw.lng}&ne_lat=${ne.lat}&ne_lon=${ne.lng}`;
+                }
+                
+                log('请求 URL:', url);
+                
+                const response = await fetch(url);
+                log('响应状态:', response.status);
+                
+                if (!response.ok) {
+                    log('✗ API 请求失败, 状态:', response.status);
+                    throw new Error(`API 请求失败 (状态: ${response.status})`);
+                }
+                
+                const data = await response.json();
+                log('✓ API 响应:');
+                log('  - 总数:', data.total);
+                log('  - 话题列表:', data.topics ? data.topics.map(t => t.title) : '无数据');
+                
+                topicData = data.topics || [];
+                
+                if (topicData.length > 0) {
+                    log('按区域分组话题...');
+                    const grouped = groupTopicsByRegion(topicData, lat, lon);
+                    
+                    clearTopicMarkers();
+                    
+                    let addedCount = 0;
+                    for (const [regionKey, regionTopics] of Object.entries(grouped)) {
+                        log(`  区域 ${regionKey}: ${regionTopics.length} 个话题`);
+                        
+                        regionTopics.forEach(topic => {
+                            addTopicMarker(topic);
+                            addedCount++;
+                        });
+                    }
+                    
+                    log(`✓ 共添加 ${addedCount} 个话题标记 (总共有 ${topicData.length} 个话题)`);
+                    setMapStatus(`探索模式: 已加载 ${addedCount} 个话题`, 'ok');
+                } else {
+                    log('当前区域没有找到话题');
+                    setMapStatus('探索模式: 当前区域无话题', 'warning');
+                }
+                
+            } catch (error) {
+                log('✗ 加载话题失败:', error);
+                showError('加载话题失败: ' + error.message);
+            }
+        }
+
+        function handleExploreMapMove() {
+            if (!isExploreMode || !map) return;
+            
+            const zoom = map.getZoom();
+            log('handleExploreMapMove - 缩放级别:', zoom.toFixed(2));
+            
+            if (zoom <= EXPLORE_MIN_ZOOM) {
+                log('缩放级别 <= 15，隐藏话题标记');
+                clearTopicMarkers();
+                return;
+            }
+            
+            if (exploreDebounceTimer) {
+                clearTimeout(exploreDebounceTimer);
+            }
+            
+            exploreDebounceTimer = setTimeout(() => {
+                const center = map.getCenter();
+                const bounds = map.getBounds();
+                
+                let radiusMeters = TOPIC_REGION_RADIUS_METERS * 3;
+                
+                if (bounds) {
+                    const sw = bounds.getSouthWest();
+                    const ne = bounds.getNorthEast();
+                    const centerLat = (sw.lat + ne.lat) / 2;
+                    
+                    const widthMeters = (ne.lng - sw.lng) * 111000 * Math.cos(Math.PI * centerLat / 180);
+                    const heightMeters = (ne.lat - sw.lat) * 111000;
+                    
+                    radiusMeters = Math.max(widthMeters, heightMeters) / 2 + TOPIC_REGION_RADIUS_METERS;
+                }
+                
+                log('防抖延迟结束，获取话题数据:', {
+                    lat: center.lat.toFixed(4),
+                    lon: center.lng.toFixed(4),
+                    radius: Math.round(radiusMeters)
+                });
+                
+                loadTopics(center.lat, center.lng, radiusMeters);
+            }, 300);
+            
+            log(`已设置探索模式防抖定时器 (300ms)`);
+        }
+
         function showZoomHintForBuildings() {
             const hint = document.getElementById('zoomHint');
             hint.textContent = '放大地图（缩放级别 >= 14）以查看 3D 建筑';
@@ -1865,14 +2390,14 @@
             try {
                 log('创建地图实例...');
                 log('地图初始配置:');
-                log('  - 中心: 116.4074, 39.9042 (北京)');
+                log('  - 中心: 121.4737, 31.2304 (上海)');
                 log('  - 初始缩放: 10');
                 log('  - 地图源:', styleName);
                 
                 map = new maplibregl.Map({
                     container: 'map',
                     style: style,
-                    center: [116.4074, 39.9042],
+                    center: [121.4737, 31.2304],
                     zoom: 10,
                     pitch: 0,
                     bearing: 0,
@@ -2045,6 +2570,7 @@
                     log('地图移动结束');
                     handleMapMoveEnd();
                     handleWeatherMapMove();
+                    handleExploreMapMove();
                 }, 300));
                 
                 map.on('zoom', () => {
@@ -2055,6 +2581,11 @@
                     
                     if (zoom < MIN_ZOOM) {
                         showZoomHint();
+                    }
+                    
+                    if (isExploreMode && zoom <= EXPLORE_MIN_ZOOM) {
+                        clearTopicMarkers();
+                        showExploreHint();
                     }
                     
                     const weatherPanel = document.getElementById('weatherPanel');
@@ -2529,6 +3060,7 @@
         window.closePanorama = closePanorama;
         window.toggleDebug = toggleDebug;
         window.toggleViewMode = toggleViewMode;
+        window.toggleExploreMode = toggleExploreMode;
         window.setPitch = setPitch;
         window.setBearing = setBearing;
         window.rotateView = rotateView;
