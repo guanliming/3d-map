@@ -1,4 +1,4 @@
-from backend.utils import TopicStore
+from backend.services.postgres import PostgresTopicStore
 
 
-topic_store = TopicStore()
+topic_store = PostgresTopicStore()

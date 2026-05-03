@@ -12,6 +12,7 @@ from fastapi.staticfiles import StaticFiles
 
 from backend.config import FRONTEND_DIR, STATIC_DIR, settings
 from backend.routers import config, scenic_spots, topics, weather
+from backend.services.postgres import init_postgres_schema
 from backend.services.topic_store import topic_store
 from backend.services.topics import init_mock_topics
 
@@ -51,6 +52,7 @@ def read_root():
 
 @app.on_event("startup")
 async def startup_event():
+    init_postgres_schema()
     init_mock_topics()
     logger.info("服务器启动完成: http://localhost:8000")
     logger.info("API 文档: http://localhost:8000/docs")

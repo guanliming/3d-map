@@ -4,6 +4,39 @@ from collections import defaultdict
 from typing import Any
 import uuid
 
+import h3
+
+
+H3_RESOLUTION = 9
+HEAT_GRAVITY = 1.6
+BEACON_THRESHOLD = 10.0
+
+
+def get_h3_index(lat: float, lon: float, resolution: int = H3_RESOLUTION) -> str:
+    return h3.latlng_to_cell(lat, lon, resolution)
+
+
+def calculate_topic_score(topic: dict[str, Any], now: datetime | None = None) -> float:
+    current_time = now or datetime.now()
+    created_at = topic["created_at"]
+    time_hours = max((current_time - created_at).total_seconds() / 3600, 0)
+    points = topic.get("likes", 0) * 5 + topic.get("comments", 0) * 10 + topic.get("clicks", 0)
+    weight = float(topic.get("weight") or 1.0)
+    return round(((points + 1) * weight) / ((time_hours + 2) ** HEAT_GRAVITY), 4)
+
+
+def get_topic_visual_params(score: float, created_at: datetime, now: datetime | None = None) -> dict[str, Any]:
+    current_time = now or datetime.now()
+    age_hours = max((current_time - created_at).total_seconds() / 3600, 0)
+    normalized = min(score / 10, 1)
+    opacity = 1.0 if age_hours <= 4 else max(0.18, 1 - (age_hours - 4) / 24)
+    return {
+        "height": round(18 + normalized * 180, 2),
+        "radius": round(0.9 + normalized * 1.15, 2),
+        "opacity": round(opacity, 2),
+        "freshness": "new" if age_hours <= 0.25 else "fresh" if age_hours <= 1 else "decaying" if age_hours > 4 else "active",
+    }
+
 
 def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     r = 6371.0
@@ -58,15 +91,6 @@ def get_topic_age_category(created_at: datetime) -> str:
     return "old"
 
 
-def get_opacity_by_age_category(category: str) -> float:
-    return {
-        "today": 1.0,
-        "three_days": 0.6,
-        "seven_days": 0.3,
-        "old": 0.1,
-    }.get(category, 1.0)
-
-
 def is_point_in_bounds(lat: float, lon: float, sw_lat: float, sw_lon: float, ne_lat: float, ne_lon: float) -> bool:
     return sw_lat <= lat <= ne_lat and sw_lon <= lon <= ne_lon
 
@@ -79,6 +103,29 @@ def latlon_to_meters(center_lat: float, center_lon: float, point_lat: float, poi
     lat_avg = math.radians((center_lat + point_lat) / 2)
     x = r * dlon * math.cos(lat_avg)
     return x, y
+
+
+def enrich_topic_dynamics(topic: dict[str, Any], center_lat: float, center_lon: float, now: datetime | None = None) -> dict[str, Any]:
+    current_time = now or datetime.now()
+    distance = haversine_distance_meters(center_lat, center_lon, topic["lat"], topic["lon"])
+    x, y = latlon_to_meters(center_lat, center_lon, topic["lat"], topic["lon"])
+    age_category = get_topic_age_category(topic["created_at"])
+    score = calculate_topic_score(topic, current_time)
+    visual = get_topic_visual_params(score, topic["created_at"], current_time)
+    return {
+        **topic,
+        "h3_index": topic.get("h3_index") or get_h3_index(topic["lat"], topic["lon"]),
+        "distance": distance,
+        "x_meters": x,
+        "y_meters": y,
+        "age_category": age_category,
+        "score": score,
+        "heat_score": score,
+        "height": visual["height"],
+        "radius": visual["radius"],
+        "opacity": visual["opacity"],
+        "freshness": visual["freshness"],
+    }
 
 
 class TopicStore:
@@ -97,6 +144,9 @@ class TopicStore:
             "created_at": datetime.now(),
             "likes": 0,
             "comments": 0,
+            "clicks": 0,
+            "weight": 1.0,
+            "h3_index": get_h3_index(lat, lon),
         }
         return topic_id
 
@@ -108,22 +158,12 @@ class TopicStore:
 
 
 async def select_topics_for_explore(topics: list[dict[str, Any]], center_lat: float, center_lon: float, sw_lat: float, sw_lon: float, ne_lat: float, ne_lon: float) -> list[dict[str, Any]]:
-    topics_in_bounds = []
-    for topic in topics:
-        if is_point_in_bounds(topic["lat"], topic["lon"], sw_lat, sw_lon, ne_lat, ne_lon):
-            distance = haversine_distance_meters(center_lat, center_lon, topic["lat"], topic["lon"])
-            x, y = latlon_to_meters(center_lat, center_lon, topic["lat"], topic["lon"])
-            age_category = get_topic_age_category(topic["created_at"])
-            topics_in_bounds.append(
-                {
-                    **topic,
-                    "distance": distance,
-                    "x_meters": x,
-                    "y_meters": y,
-                    "age_category": age_category,
-                    "opacity": get_opacity_by_age_category(age_category),
-                }
-            )
+    current_time = datetime.now()
+    topics_in_bounds = [
+        enrich_topic_dynamics(topic, center_lat, center_lon, current_time)
+        for topic in topics
+        if is_point_in_bounds(topic["lat"], topic["lon"], sw_lat, sw_lon, ne_lat, ne_lon)
+    ]
 
     if not topics_in_bounds:
         return []
@@ -139,21 +179,35 @@ async def select_topics_for_explore(topics: list[dict[str, Any]], center_lat: fl
 
     selected: list[dict[str, Any]] = []
     for grid_topics in grouped.values():
-        today = [t for t in grid_topics if t["age_category"] == "today"]
-        three_days = [t for t in grid_topics if t["age_category"] == "three_days"]
-        seven_days = [t for t in grid_topics if t["age_category"] == "seven_days"]
+        selected.extend(sorted(grid_topics, key=lambda topic: (-topic["score"], topic["distance"]))[:3])
 
-        def sort_key(topic: dict[str, Any]):
-            heat_score = topic["likes"] * 10 + topic["comments"] * 5
-            time_diff = (datetime.now() - topic["created_at"]).total_seconds()
-            return (-heat_score, time_diff)
+    return sorted(selected, key=lambda topic: (-topic["score"], topic["distance"]))
 
-        if today:
-            selected.extend(sorted(today, key=sort_key)[:3])
-        elif three_days:
-            selected.extend(sorted(three_days, key=sort_key)[:3])
-        elif seven_days:
-            selected.extend(sorted(seven_days, key=sort_key)[:3])
 
-    selected = sorted(selected, key=lambda t: (t["age_category"] != "today", t["distance"]))
-    return selected
+def aggregate_topic_beacons(topics: list[dict[str, Any]], sw_lat: float, sw_lon: float, ne_lat: float, ne_lon: float) -> list[dict[str, Any]]:
+    current_time = datetime.now()
+    grouped: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
+    for topic in topics:
+        if is_point_in_bounds(topic["lat"], topic["lon"], sw_lat, sw_lon, ne_lat, ne_lon):
+            enriched = enrich_topic_dynamics(topic, topic["lat"], topic["lon"], current_time)
+            grouped[enriched["h3_index"]].append(enriched)
+
+    beacons = []
+    for h3_index, h3_topics in grouped.items():
+        score_sum = round(sum(topic["score"] for topic in h3_topics), 4)
+        if score_sum <= BEACON_THRESHOLD:
+            continue
+        lat, lon = h3.cell_to_latlng(h3_index)
+        top_topic = max(h3_topics, key=lambda topic: topic["score"])
+        beacons.append(
+            {
+                "h3_index": h3_index,
+                "lat": lat,
+                "lon": lon,
+                "score_sum": score_sum,
+                "topic_count": len(h3_topics),
+                "preview": top_topic["content"][:80],
+            }
+        )
+
+    return sorted(beacons, key=lambda beacon: -beacon["score_sum"])[:30]

@@ -6,11 +6,12 @@
     <title>3D 地图 - 景点探索</title>
     <link href="/static/vendor/maplibre-gl/maplibre-gl.css" rel="stylesheet" />
     <script src="/static/vendor/maplibre-gl/maplibre-gl.js"></script>
-    <link rel="stylesheet" href="/static/css/app.css" />
+    <link rel="stylesheet" href="/static/css/app.css?v=fog-poi-3" />
 </head>
 <body>
     <div id="app">
         <div id="map"></div>
+        <div id="fogLayer" class="fog-layer show"></div>
         
         <div id="weatherEffects" class="weather-effects">
             <canvas id="weatherCanvas"></canvas>
@@ -145,12 +146,19 @@
             <div id="panorama" class="panorama-container"></div>
         </div>
         
-        <button id="exploreToggleBtn" class="explore-toggle-btn" onclick="toggleExploreMode()">
-            <span class="explore-indicator" id="exploreIndicator"></span>
-            <span id="exploreLabel">开启探索</span>
-        </button>
+        <div class="layer-panel">
+            <div class="layer-title">图层</div>
+            <label class="layer-toggle">
+                <input id="scenicLayerCheckbox" type="checkbox" checked onchange="toggleScenicLayer(this.checked)" />
+                <span>探索景点</span>
+            </label>
+            <label class="layer-toggle">
+                <input id="topicLayerCheckbox" type="checkbox" checked onchange="toggleTopicLayer(this.checked)" />
+                <span>实时话题</span>
+            </label>
+        </div>
         
-        <button id="createTopicBtn" class="create-topic-btn" onclick="openCreateTopicModal()">
+        <button id="createTopicBtn" class="create-topic-btn show" onclick="openCreateTopicModal()">
             ✏️
         </button>
         
@@ -188,6 +196,6 @@
         </div>
     </div>
 
-    <script src="/static/js/app.js"></script>
+    <script src="/static/js/app.js?v=fog-poi-3"></script>
 </body>
 </html>

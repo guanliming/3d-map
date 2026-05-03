@@ -82,6 +82,8 @@ class TopicCreate(BaseModel):
     lat: float = Field(..., description="纬度", ge=-90, le=90)
     lon: float = Field(..., description="经度", ge=-180, le=180)
     image: str | None = Field(None, description="图片URL（可选）")
+    scenic_spot_name: str | None = Field(None, description="关联景点名称（可选）")
+    scenic_spot_distance_m: float | None = Field(None, description="距离关联景点的米数（可选）")
 
 
 class Topic(BaseModel):
@@ -94,9 +96,19 @@ class Topic(BaseModel):
     created_at: datetime
     likes: int = 0
     comments: int = 0
+    clicks: int = 0
+    weight: float = 1.0
     distance: float = 0.0
     opacity: float = 1.0
     age_category: str = "today"
+    h3_index: str | None = None
+    score: float = 0.0
+    heat_score: float = 0.0
+    height: float = 0.0
+    radius: float = 1.0
+    freshness: str = "active"
+    scenic_spot_name: str | None = None
+    scenic_spot_distance_m: float | None = None
 
 
 class TopicResponse(BaseModel):

@@ -31,15 +31,16 @@ def init_mock_topics() -> None:
     now = datetime.now()
     for index, data in enumerate(mock_data):
         loc = shanghai_locations[index % len(shanghai_locations)]
-        topic_id = str(uuid.uuid4())
-        topic_store.topics[topic_id] = {
-            "id": topic_id,
-            "user_name": data["user_name"],
-            "content": data["content"],
-            "lat": loc["lat"] + index * 0.001,
-            "lon": loc["lon"] + index * 0.001,
-            "image": None,
-            "created_at": now - timedelta(days=data["days_ago"], hours=index),
-            "likes": data["likes"],
-            "comments": data["comments"],
-        }
+        topic_store.insert_topic(
+            {
+                "id": str(uuid.uuid4()),
+                "user_name": data["user_name"],
+                "content": data["content"],
+                "lat": loc["lat"] + index * 0.001,
+                "lon": loc["lon"] + index * 0.001,
+                "image": None,
+                "created_at": now - timedelta(days=data["days_ago"], hours=index),
+                "likes": data["likes"],
+                "comments": data["comments"],
+            }
+        )

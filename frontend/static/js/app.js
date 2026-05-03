@@ -27,12 +27,15 @@ let map;
         const WEATHER_MIN_ZOOM = 12;
         const WEATHER_DEBOUNCE_DELAY = 1000;
 
-        let isExploreMode = false;
+        let isExploreMode = true;
+        let scenicLayerVisible = true;
         let topicMarkers = [];
+        let beaconMarkers = [];
         let topicData = [];
         let topicsDebounceTimer = null;
 
-        const TOPICS_MIN_ZOOM = 15;
+        const TOPICS_HEAT_MIN_ZOOM = 12;
+        const TOPICS_BUBBLE_MIN_ZOOM = 15;
         const TOPICS_DEBOUNCE_DELAY = 500;
 
         const SHANGHAI_CENTER = [121.4737, 31.2304];
@@ -490,6 +493,7 @@ let map;
 
         const MIN_ZOOM = 6;
         const MAX_ZOOM = 12;
+        const MAP_MAX_ZOOM = 17.5;
         const DEFAULT_3D_PITCH = 45;
         const DEFAULT_3D_BEARING = 0;
 
@@ -572,7 +576,7 @@ let map;
 
         function calculateRadiusByZoom(zoom) {
             if (zoom < MIN_ZOOM) return 0;
-            if (zoom > MAX_ZOOM) return 0;
+            if (zoom >= MAX_ZOOM) return 10;
 
             const RADIUS_CONFIG = [
                 { zoom: 6, minRadius: 500, maxRadius: 800 },
@@ -1335,6 +1339,7 @@ let map;
                     style: style,
                     center: SHANGHAI_CENTER,
                     zoom: 12,
+                    maxZoom: MAP_MAX_ZOOM,
                     pitch: 0,
                     bearing: 0,
                     failIfMajorPerformanceCaveat: false,
@@ -1369,7 +1374,10 @@ let map;
                     }, 800);
                     
                     log('🔧 添加建筑点击调试功能: 点击地图上的建筑可查看其属性');
-                    map.on('click', (e) => {
+                    map.on('click', async (e) => {
+                        if (await openNearestOrFetchSpotPopup(e.lngLat)) {
+                            return;
+                        }
                         const features = map.queryRenderedFeatures(e.point);
                         if (features && features.length > 0) {
                             let buildingFound = false;
@@ -1509,6 +1517,11 @@ let map;
                 
                 map.on('zoom', () => {
                     const zoom = map.getZoom();
+                    if (zoom > MAP_MAX_ZOOM) {
+                        map.setZoom(MAP_MAX_ZOOM);
+                        return;
+                    }
+
                     const radiusInfo = getRadiusInfo(zoom);
                     log('缩放级别改变:', zoom.toFixed(2), `-> 查询半径: ${radiusInfo.radius} 公里`);
                     updateDebugPanel();
@@ -1528,7 +1541,7 @@ let map;
                     }
                     
                     if (isExploreMode) {
-                        if (zoom <= TOPICS_MIN_ZOOM) {
+                        if (zoom <= TOPICS_BUBBLE_MIN_ZOOM) {
                             clearTopicMarkers();
                             const zoomHintTopics = document.getElementById('zoomHintTopics');
                             zoomHintTopics.classList.add('show');
@@ -1595,15 +1608,20 @@ let map;
                 return;
             }
             
+            if (!scenicLayerVisible) {
+                log('景点图层已关闭，跳过景点加载');
+                clearMarkers();
+                updateDebugPanel();
+                return;
+            }
+            
             const zoom = map.getZoom();
             log('处理地图移动事件, 缩放级别:', zoom.toFixed(2));
             
-            if (zoom < MIN_ZOOM || zoom > MAX_ZOOM) {
-                log(`缩放级别不在显示范围内 (${MIN_ZOOM}-${MAX_ZOOM}), 清除标记`);
+            if (zoom < MIN_ZOOM) {
+                log(`缩放级别低于显示范围 (${MIN_ZOOM}), 清除标记`);
                 clearMarkers();
-                if (zoom < MIN_ZOOM) {
-                    showZoomHint();
-                }
+                showZoomHint();
             } else {
                 const center = map.getCenter();
                 const radius = calculateRadiusByZoom(zoom);
@@ -1867,6 +1885,10 @@ let map;
                 log('  - 景点列表:', data.spots ? data.spots.map(s => s.name) : '无数据');
                 
                 spotData = data.spots || [];
+                if (!scenicLayerVisible) {
+                    clearMarkers();
+                    return;
+                }
                 clearMarkers();
                 
                 if (spotData.length > 0) {
@@ -1904,41 +1926,118 @@ let map;
             }
         }
 
+        function getScenicIconSvg() {
+            return `
+                <svg class="scenic-icon-svg" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M4 18.5h16l-4.65-6.2-3.1 4.05-2.4-3.05L4 18.5Z" fill="currentColor" opacity=".96"/>
+                    <path d="M14.8 6.25a2.05 2.05 0 1 0 4.1 0 2.05 2.05 0 0 0-4.1 0Z" fill="#fde68a"/>
+                    <path d="M6 18.5h12" stroke="white" stroke-width="1.3" stroke-linecap="round" opacity=".65"/>
+                </svg>
+            `;
+        }
+
+        let activeSpotPopup = null;
+
+        function buildSpotPopupContent(spot) {
+            const safeName = escapeHtml(spot.name || '未知景点');
+            const safeImage = escapeHtml(spot.image || '');
+            const safeRating = escapeHtml(spot.rating || '暂无评分');
+            const safeDistance = spot.distance !== undefined ? escapeHtml(spot.distance) : '未知';
+            const panoramaName = JSON.stringify(spot.name || '未知景点');
+            return `
+                <div class="popup-content">
+                    ${safeImage ? `<img src="${safeImage}" alt="${safeName}" />` : ''}
+                    <h3>${safeName}</h3>
+                    <div class="rating">
+                        <span class="star">★</span>
+                        <span>${safeRating}</span>
+                        <span style="color: #6b7280;">/ 5.0</span>
+                    </div>
+                    <div class="distance">距离: ${safeDistance} 公里</div>
+                    <div class="spot-topics-section">
+                        <div class="spot-topics-title">附近实时话题</div>
+                        ${renderSpotTopics(spot)}
+                    </div>
+                    <button class="view-btn" onclick="openPanorama(${spot.lat}, ${spot.lon}, ${panoramaName})">
+                        查看 360° 全景
+                    </button>
+                </div>
+            `;
+        }
+
+        function openSpotPopup(spot) {
+            if (!map || !spot) return;
+            if (activeSpotPopup) {
+                activeSpotPopup.remove();
+            }
+            activeSpotPopup = new maplibregl.Popup({
+                offset: 28,
+                closeButton: true,
+                closeOnClick: true
+            })
+                .setLngLat([spot.lon, spot.lat])
+                .setHTML(buildSpotPopupContent(spot))
+                .addTo(map);
+            map.easeTo({ center: [spot.lon, spot.lat], duration: 350, essential: true });
+        }
+
+        function openNearestSpotPopup(lngLat, maxDistanceMeters = 650) {
+            if (!spotData || spotData.length === 0) return false;
+            let nearest = null;
+            let minDistance = Infinity;
+            for (const spot of spotData) {
+                const distance = getDistanceMeters(lngLat.lat, lngLat.lng, spot.lat, spot.lon);
+                if (distance < minDistance) {
+                    minDistance = distance;
+                    nearest = spot;
+                }
+            }
+            if (nearest && minDistance <= maxDistanceMeters) {
+                openSpotPopup(nearest);
+                log('点击地图后打开最近景点:', nearest.name, Math.round(minDistance), 'm');
+                return true;
+            }
+            return false;
+        }
+
+        async function openNearestOrFetchSpotPopup(lngLat, maxDistanceMeters = 650) {
+            if (openNearestSpotPopup(lngLat, maxDistanceMeters)) return true;
+            if (!scenicLayerVisible) return false;
+            try {
+                const response = await fetch(`/api/scenic_spots?lat=${lngLat.lat}&lon=${lngLat.lng}&radius=1`);
+                if (!response.ok) return false;
+                const data = await response.json();
+                const spots = data.spots || [];
+                if (!spots.length) return false;
+                spotData = [...spots, ...spotData.filter(existing => !spots.some(spot => spot.name === existing.name))];
+                const nearest = spots[0];
+                addMarker(nearest);
+                openSpotPopup(nearest);
+                log('点击底图后按当前位置加载并打开景点:', nearest.name);
+                return true;
+            } catch (error) {
+                log('点击底图加载景点失败:', error);
+                return false;
+            }
+        }
+
         function addMarker(spot) {
             const el = document.createElement('div');
             el.className = 'marker';
             
             const markerIcon = document.createElement('div');
             markerIcon.className = 'marker-icon';
-            markerIcon.innerHTML = `<span class="inner">📍</span>`;
+            markerIcon.innerHTML = `<span class="inner">${getScenicIconSvg()}</span>`;
             el.appendChild(markerIcon);
-            
-            const popupContent = `
-                <div class="popup-content">
-                    <img src="${spot.image}" alt="${spot.name}" />
-                    <h3>${spot.name}</h3>
-                    <div class="rating">
-                        <span class="star">★</span>
-                        <span>${spot.rating}</span>
-                        <span style="color: #6b7280;">/ 5.0</span>
-                    </div>
-                    <div class="distance">距离: ${spot.distance} 公里</div>
-                    <button class="view-btn" onclick="openPanorama(${spot.lat}, ${spot.lon}, '${spot.name}')">
-                        查看 360° 全景
-                    </button>
-                </div>
-            `;
-            
-            const popup = new maplibregl.Popup({
-                offset: 25,
-                closeButton: true,
-                closeOnClick: false
-            }).setHTML(popupContent);
             
             const marker = new maplibregl.Marker(el)
                 .setLngLat([spot.lon, spot.lat])
-                .setPopup(popup)
                 .addTo(map);
+
+            el.addEventListener('click', (event) => {
+                event.stopPropagation();
+                openSpotPopup(spot);
+            });
             
             markers.push(marker);
             log('标记已添加到地图:', spot.name);
@@ -2027,38 +2126,47 @@ let map;
             document.getElementById('loadingOverlay').classList.remove('show');
         }
 
-        function toggleExploreMode() {
-            isExploreMode = !isExploreMode;
-            log('切换探索模式:', isExploreMode ? '开启' : '关闭');
-            
-            const toggleBtn = document.getElementById('exploreToggleBtn');
-            const exploreLabel = document.getElementById('exploreLabel');
+        function toggleScenicLayer(checked) {
+            scenicLayerVisible = checked;
+            log('景点图层:', checked ? '开启' : '关闭');
+            if (checked) {
+                handleMapMoveEnd();
+            } else {
+                clearMarkers();
+            }
+            updateDebugPanel();
+        }
+
+        function setFogVisible(visible) {
+            const fogLayer = document.getElementById('fogLayer');
+            if (!fogLayer) return;
+            fogLayer.classList.toggle('show', visible);
+            fogLayer.classList.toggle('hidden', !visible);
+        }
+
+        function toggleTopicLayer(checked) {
+            isExploreMode = checked;
+            setFogVisible(checked);
+            log('实时话题图层:', checked ? '开启' : '关闭');
             const createTopicBtn = document.getElementById('createTopicBtn');
             const zoomHintTopics = document.getElementById('zoomHintTopics');
-            
-            if (isExploreMode) {
-                toggleBtn.classList.add('active');
-                exploreLabel.textContent = '关闭探索';
+            if (checked) {
                 createTopicBtn.classList.add('show');
-                
-                const zoom = map.getZoom();
-                if (zoom <= TOPICS_MIN_ZOOM) {
-                    zoomHintTopics.classList.add('show');
-                    setTimeout(() => {
-                        zoomHintTopics.classList.remove('show');
-                    }, 5000);
-                }
-                
                 loadTopics();
             } else {
-                toggleBtn.classList.remove('active');
-                exploreLabel.textContent = '开启探索';
                 createTopicBtn.classList.remove('show');
                 zoomHintTopics.classList.remove('show');
                 clearTopicMarkers();
+                clearBeaconMarkers();
             }
-            
             updateDebugPanel();
+        }
+
+        function toggleExploreMode() {
+            const checkbox = document.getElementById('topicLayerCheckbox');
+            const nextValue = !isExploreMode;
+            if (checkbox) checkbox.checked = nextValue;
+            toggleTopicLayer(nextValue);
         }
 
         function getAgeCategoryLabel(category) {
@@ -2077,6 +2185,53 @@ let map;
                 case 'seven_days': return 'seven-days';
                 default: return '';
             }
+        }
+
+        function getDistanceMeters(lat1, lon1, lat2, lon2) {
+            const radius = 6371000;
+            const toRad = value => value * Math.PI / 180;
+            const dLat = toRad(lat2 - lat1);
+            const dLon = toRad(lon2 - lon1);
+            const a = Math.sin(dLat / 2) ** 2 + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
+            return radius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        }
+
+        function findNearestSpot(lat, lon, maxDistance = 500) {
+            let nearest = null;
+            let nearestDistance = Infinity;
+
+            spotData.forEach(spot => {
+                const distance = getDistanceMeters(lat, lon, spot.lat, spot.lon);
+                if (distance < nearestDistance) {
+                    nearest = spot;
+                    nearestDistance = distance;
+                }
+            });
+
+            if (!nearest || nearestDistance > maxDistance) return null;
+            return { spot: nearest, distance: nearestDistance };
+        }
+
+        function getNearbyTopicsForSpot(spot, maxDistance = 800, limit = 5) {
+            return topicData
+                .map(topic => ({ ...topic, spotDistance: getDistanceMeters(spot.lat, spot.lon, topic.lat, topic.lon) }))
+                .filter(topic => topic.spotDistance <= maxDistance)
+                .sort((a, b) => (b.likes + b.comments * 2) - (a.likes + a.comments * 2))
+                .slice(0, limit);
+        }
+
+        function renderSpotTopics(spot) {
+            const nearbyTopics = getNearbyTopicsForSpot(spot);
+            if (!nearbyTopics.length) {
+                return '<div class="spot-topic-empty">附近暂无实时话题</div>';
+            }
+
+            return nearbyTopics.map(topic => `
+                <div class="spot-topic-item">
+                    <div class="spot-topic-text">${escapeHtml(topic.content.length > 28 ? topic.content.substring(0, 28) + '...' : topic.content)}</div>
+                    <div class="spot-topic-meta">${escapeHtml(topic.user_name)} · ${Math.round(topic.spotDistance)}m · ❤️ ${topic.likes}</div>
+                </div>
+            `).join('');
         }
 
         function formatDate(dateStr) {
@@ -2102,35 +2257,67 @@ let map;
             }
         }
 
+        function escapeHtml(value) {
+            return String(value)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#39;');
+        }
+
+        function getTopicIconSvg() {
+            return `
+                <svg class="topic-icon-svg" viewBox="0 0 24 24" aria-hidden="true">
+                    <path d="M12 3.5c-5 0-9 3.25-9 7.25 0 2.45 1.48 4.62 3.76 5.94l-.62 2.9a.75.75 0 0 0 1.08.8l3.36-1.72c.46.06.93.08 1.42.08 5 0 9-3.25 9-7.25S17 3.5 12 3.5Z" fill="currentColor"/>
+                    <circle cx="8.5" cy="10.9" r="1.05" fill="white" opacity=".92"/>
+                    <circle cx="12" cy="10.9" r="1.05" fill="white" opacity=".92"/>
+                    <circle cx="15.5" cy="10.9" r="1.05" fill="white" opacity=".92"/>
+                </svg>
+            `;
+        }
+
         function addTopicMarker(topic) {
             const el = document.createElement('div');
             el.className = 'topic-marker';
             
             const bubbleClass = getBubbleClassByAge(topic.age_category);
+            const isHeatPoint = map && map.getZoom() <= TOPICS_BUBBLE_MIN_ZOOM;
             const bubble = document.createElement('div');
-            bubble.className = `topic-bubble ${bubbleClass}`;
+            bubble.className = `topic-bubble ${bubbleClass}${isHeatPoint ? ' heat-point' : ''} ${topic.freshness || 'active'}`;
             bubble.style.opacity = topic.opacity;
+            bubble.style.transform = `translateY(-${Math.round(topic.height || 0)}px) scale(${topic.radius || 1})`;
+            el.style.setProperty('--topic-height', `${Math.round(topic.height || 0)}px`);
             
-            const displayContent = topic.content.length > 15 
-                ? topic.content.substring(0, 15) + '...' 
-                : topic.content;
-            bubble.textContent = displayContent;
+            const displayContent = isHeatPoint
+                ? `${Math.max(1, topic.likes + topic.comments)}`
+                : (topic.content.length > 15 
+                    ? topic.content.substring(0, 15) + '...' 
+                    : topic.content);
+
+            if (isHeatPoint) {
+                bubble.innerHTML = `<span class="topic-icon-core">${getTopicIconSvg()}</span><span class="topic-heat-count">${escapeHtml(displayContent)}</span>`;
+            } else {
+                bubble.innerHTML = `<span class="topic-icon-core">${getTopicIconSvg()}</span><span class="topic-text">${escapeHtml(displayContent)}</span>`;
+            }
             
             el.appendChild(bubble);
             
             const popupContent = `
                 <div class="topic-popup">
                     <div class="topic-header">
-                        <div class="user-avatar">${topic.user_name.charAt(0).toUpperCase()}</div>
+                        <div class="user-avatar">${escapeHtml(topic.user_name.charAt(0).toUpperCase())}</div>
                         <div class="user-info">
-                            <div class="user-name">${topic.user_name}</div>
-                            <div class="time-info">${formatDate(topic.created_at)} · ${getAgeCategoryLabel(topic.age_category)} · ${Math.round(topic.distance)}m</div>
+                            <div class="user-name">${escapeHtml(topic.user_name)}</div>
+                            <div class="time-info">${formatDate(topic.created_at)} · 热度 ${Number(topic.score || 0).toFixed(2)} · ${Math.round(topic.distance)}m</div>
                         </div>
                     </div>
-                    <div class="topic-content">${topic.content.replace(/\n/g, '<br>')}</div>
+                    <div class="topic-content">${escapeHtml(topic.content).replace(/\n/g, '<br>')}</div>
+                    ${topic.scenic_spot_name ? `<div class="topic-spot-tag">关联景点：${escapeHtml(topic.scenic_spot_name)} · ${Math.round(topic.scenic_spot_distance_m || 0)}m</div>` : ''}
                     <div class="topic-stats">
                         <div class="stat-item">❤️ ${topic.likes}</div>
                         <div class="stat-item">💬 ${topic.comments}</div>
+                        <div class="stat-item">👁️ ${topic.clicks || 0}</div>
                     </div>
                     <button class="like-btn" onclick="likeTopic('${topic.id}')">
                         ❤️ 点赞
@@ -2148,6 +2335,8 @@ let map;
                 .setLngLat([topic.lon, topic.lat])
                 .setPopup(popup)
                 .addTo(map);
+
+            el.addEventListener('click', () => recordTopicClick(topic.id), { once: true });
             
             topicMarkers.push(marker);
             log('话题标记已添加:', topic.user_name, '- 距离:', Math.round(topic.distance), 'm, 透明度:', topic.opacity);
@@ -2157,6 +2346,50 @@ let map;
             log('清除话题标记, 当前数量:', topicMarkers.length);
             topicMarkers.forEach(marker => marker.remove());
             topicMarkers = [];
+        }
+
+        function clearBeaconMarkers() {
+            beaconMarkers.forEach(marker => marker.remove());
+            beaconMarkers = [];
+        }
+
+        function addBeaconMarker(beacon) {
+            const el = document.createElement('div');
+            el.className = 'beacon-marker';
+            el.innerHTML = '<div class="beacon-beam"></div><div class="beacon-core"></div>';
+
+            const popup = new maplibregl.Popup({ offset: 28, closeButton: true, closeOnClick: true })
+                .setHTML(`
+                    <div class="beacon-popup">
+                        <div class="beacon-title">迷雾灯塔</div>
+                        <div>热度：${Number(beacon.score_sum || 0).toFixed(2)} · 话题 ${beacon.topic_count}</div>
+                        <div class="beacon-preview">${escapeHtml(beacon.preview || '附近有高热度话题')}</div>
+                        <div class="beacon-hint">前往该区域可解锁完整内容</div>
+                    </div>
+                `);
+
+            const marker = new maplibregl.Marker(el)
+                .setLngLat([beacon.lon, beacon.lat])
+                .setPopup(popup)
+                .addTo(map);
+            beaconMarkers.push(marker);
+        }
+
+        async function loadBeacons() {
+            if (!map || !isExploreMode) return;
+            const bounds = map.getBounds();
+            if (!bounds) return;
+            const sw = bounds.getSouthWest();
+            const ne = bounds.getNorthEast();
+            try {
+                const response = await fetch(`/api/topics/beacons?sw_lat=${sw.lat}&sw_lon=${sw.lng}&ne_lat=${ne.lat}&ne_lon=${ne.lng}`);
+                if (!response.ok) return;
+                const data = await response.json();
+                clearBeaconMarkers();
+                (data.beacons || []).forEach(addBeaconMarker);
+            } catch (error) {
+                log('加载灯塔失败:', error);
+            }
         }
 
         async function loadTopics() {
@@ -2171,9 +2404,10 @@ let map;
             }
             
             const zoom = map.getZoom();
-            if (zoom <= TOPICS_MIN_ZOOM) {
-                log(`缩放级别 ${zoom.toFixed(2)} <= ${TOPICS_MIN_ZOOM}，不显示话题`);
+            if (zoom <= TOPICS_HEAT_MIN_ZOOM) {
+                log(`缩放级别 ${zoom.toFixed(2)} <= ${TOPICS_HEAT_MIN_ZOOM}，隐藏话题并加载灯塔`);
                 clearTopicMarkers();
+                loadBeacons();
                 return;
             }
             
@@ -2208,8 +2442,18 @@ let map;
                 const data = await response.json();
                 log('✓ 话题 API 响应:');
                 log('  - 总数:', data.total);
+                clearBeaconMarkers();
                 
-                topicData = data.topics || [];
+                topicData = (data.topics || []).map(topic => {
+                    if (topic.scenic_spot_name) return topic;
+                    const linkedSpot = findNearestSpot(topic.lat, topic.lon, 500);
+                    if (!linkedSpot) return topic;
+                    return {
+                        ...topic,
+                        scenic_spot_name: linkedSpot.spot.name,
+                        scenic_spot_distance_m: linkedSpot.distance
+                    };
+                });
                 clearTopicMarkers();
                 
                 if (topicData.length > 0) {
@@ -2236,9 +2480,10 @@ let map;
             const zoom = map.getZoom();
             const zoomHintTopics = document.getElementById('zoomHintTopics');
             
-            if (zoom <= TOPICS_MIN_ZOOM) {
+            if (zoom <= TOPICS_HEAT_MIN_ZOOM) {
                 clearTopicMarkers();
-                log('缩放级别过低，清除话题标记');
+                loadBeacons();
+                log('缩放级别过低，清除话题标记并加载迷雾灯塔');
             } else {
                 zoomHintTopics.classList.remove('show');
                 
@@ -2252,6 +2497,14 @@ let map;
                 }, TOPICS_DEBOUNCE_DELAY);
                 
                 log(`已设置话题防抖定时器 (${TOPICS_DEBOUNCE_DELAY}ms)`);
+            }
+        }
+
+        async function recordTopicClick(topicId) {
+            try {
+                await fetch(`/api/topics/${topicId}/click`, { method: 'POST' });
+            } catch (error) {
+                log('话题点击计数失败:', error);
             }
         }
 
@@ -2318,6 +2571,7 @@ let map;
             }
             
             const center = map.getCenter();
+            const linkedSpot = findNearestSpot(center.lat, center.lng, 500);
             
             submitBtn.disabled = true;
             submitBtn.textContent = '发布中...';
@@ -2332,7 +2586,9 @@ let map;
                         user_name: userName,
                         content: content,
                         lat: center.lat,
-                        lon: center.lng
+                        lon: center.lng,
+                        scenic_spot_name: linkedSpot ? linkedSpot.spot.name : null,
+                        scenic_spot_distance_m: linkedSpot ? linkedSpot.distance : null
                     })
                 });
                 
@@ -2378,6 +2634,8 @@ let map;
         window.setBearing = setBearing;
         window.rotateView = rotateView;
         window.toggleExploreMode = toggleExploreMode;
+        window.toggleScenicLayer = toggleScenicLayer;
+        window.toggleTopicLayer = toggleTopicLayer;
         window.openCreateTopicModal = openCreateTopicModal;
         window.closeCreateTopicModal = closeCreateTopicModal;
         window.submitTopic = submitTopic;
