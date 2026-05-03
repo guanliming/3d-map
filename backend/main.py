@@ -318,6 +318,25 @@ def is_point_in_bounds(lat: float, lon: float,
             sw_lon <= lon <= ne_lon)
 
 
+def latlon_to_meters(center_lat: float, center_lon: float, 
+                      point_lat: float, point_lon: float) -> tuple:
+    """
+    将经纬度坐标转换为相对于中心点的米坐标
+    返回: (x_meters, y_meters) - 相对于中心点的坐标（东为x正方向，北为y正方向）
+    """
+    R = 6371000.0
+    
+    dlat = math.radians(point_lat - center_lat)
+    dlon = math.radians(point_lon - center_lon)
+    
+    y = R * dlat
+    
+    lat_avg = math.radians((center_lat + point_lat) / 2)
+    x = R * dlon * math.cos(lat_avg)
+    
+    return (x, y)
+
+
 def select_topics_for_explore(topics: List[Dict[str, Any]], 
                                center_lat: float, center_lon: float,
                                sw_lat: float, sw_lon: float,
@@ -325,10 +344,10 @@ def select_topics_for_explore(topics: List[Dict[str, Any]],
     """
     探索模式下的话题选择逻辑：
     1. 只加载可视范围内的话题
-    2. 优先显示当天的话题
-    3. 以500m为半径划分区域，每个区域只显示top3话题
-    4. 如果500m范围内当天没有话题，显示3天内的（半透明）
-    5. 如果3天内没有，显示4-7天的（更高透明度）
+    2. 以地图正中心为原点，按500m半径划分区域（实际使用1000m×1000m网格确保覆盖500m圆）
+    3. 每个区域只显示top3话题
+    4. 优先级：当天话题 > 近3天话题 > 近7天话题
+    5. 不同时间范围的话题有不同透明度
     """
     
     now = datetime.now()
@@ -337,31 +356,43 @@ def select_topics_for_explore(topics: List[Dict[str, Any]],
     for t in topics:
         if is_point_in_bounds(t["lat"], t["lon"], sw_lat, sw_lon, ne_lat, ne_lon):
             distance = haversine_distance_meters(center_lat, center_lon, t["lat"], t["lon"])
+            x, y = latlon_to_meters(center_lat, center_lon, t["lat"], t["lon"])
             age_category = get_topic_age_category(t["created_at"])
             topics_in_bounds.append({
                 **t,
                 "distance": distance,
+                "x_meters": x,
+                "y_meters": y,
                 "age_category": age_category,
                 "opacity": get_opacity_by_age_category(age_category)
             })
     
     if not topics_in_bounds:
+        logger.info("  可视范围内没有话题")
         return []
     
-    RADIUS_500M = 500.0
+    GRID_SIZE = 1000.0
     
-    def get_grid_key(lat: float, lon: float) -> tuple:
-        delta_lat = (RADIUS_500M / 6371000.0) * (180.0 / math.pi)
-        delta_lon = delta_lat / math.cos(math.radians(center_lat))
-        
-        grid_lat = round(lat / delta_lat)
-        grid_lon = round(lon / delta_lon)
-        return (grid_lat, grid_lon)
+    def get_grid_key(x: float, y: float) -> tuple:
+        """
+        以地图中心为原点(0,0)，按1000m×1000m网格划分
+        网格(0,0)对应中心区域：x: [-500, 500), y: [-500, 500)
+        网格(1,0)对应右侧相邻区域：x: [500, 1500), y: [-500, 500)
+        """
+        grid_x = int(math.floor((x + GRID_SIZE / 2) / GRID_SIZE))
+        grid_y = int(math.floor((y + GRID_SIZE / 2) / GRID_SIZE))
+        return (grid_x, grid_y)
     
     grid_groups = defaultdict(list)
     for t in topics_in_bounds:
-        grid_key = get_grid_key(t["lat"], t["lon"])
+        grid_key = get_grid_key(t["x_meters"], t["y_meters"])
         grid_groups[grid_key].append(t)
+    
+    logger.info(f"  网格划分结果: {len(grid_groups)} 个区域")
+    for grid_key, grid_topics in grid_groups.items():
+        logger.info(f"    区域 {grid_key}: {len(grid_topics)} 个话题")
+        for t in grid_topics:
+            logger.info(f"      - {t['user_name']}: 位置({t['x_meters']:.0f}m, {t['y_meters']:.0f}m), 距离中心 {t['distance']:.0f}m")
     
     result_topics = []
     
@@ -369,6 +400,8 @@ def select_topics_for_explore(topics: List[Dict[str, Any]],
         today_topics = [t for t in grid_topics if t["age_category"] == "today"]
         three_day_topics = [t for t in grid_topics if t["age_category"] == "three_days"]
         seven_day_topics = [t for t in grid_topics if t["age_category"] == "seven_days"]
+        
+        logger.info(f"  区域 {grid_key} 时间分布: 当天={len(today_topics)}, 近3天={len(three_day_topics)}, 近7天={len(seven_day_topics)}")
         
         def sort_key(topic):
             heat_score = topic["likes"] * 10 + topic["comments"] * 5
@@ -379,16 +412,21 @@ def select_topics_for_explore(topics: List[Dict[str, Any]],
         if today_topics:
             today_topics_sorted = sorted(today_topics, key=sort_key)
             selected = today_topics_sorted[:3]
+            logger.info(f"  区域 {grid_key} 选择当天话题前3个: {[t['user_name'] for t in selected]}")
         elif three_day_topics:
             three_day_sorted = sorted(three_day_topics, key=sort_key)
             selected = three_day_sorted[:3]
+            logger.info(f"  区域 {grid_key} 选择近3天话题前3个: {[t['user_name'] for t in selected]}")
         elif seven_day_topics:
             seven_day_sorted = sorted(seven_day_topics, key=sort_key)
             selected = seven_day_sorted[:3]
+            logger.info(f"  区域 {grid_key} 选择近7天话题前3个: {[t['user_name'] for t in selected]}")
         
         result_topics.extend(selected)
     
     result_topics_sorted = sorted(result_topics, key=lambda t: (t["age_category"] != "today", t["distance"]))
+    
+    logger.info(f"  最终选择话题数: {len(result_topics_sorted)}")
     
     return [Topic(
         id=t["id"],
