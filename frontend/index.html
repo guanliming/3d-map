@@ -322,10 +322,179 @@
             background: rgba(102, 126, 234, 0.8);
         }
         
+        .explore-toggle-btn {
+            position: absolute;
+            top: 10px;
+            left: 180px;
+            z-index: 101;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            border: none;
+            padding: 10px 16px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            transition: background 0.2s;
+        }
+        
+        .explore-toggle-btn:hover {
+            background: rgba(0, 0, 0, 0.9);
+        }
+        
+        .explore-toggle-btn .mode-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #a0aec0;
+        }
+        
+        .explore-toggle-btn.explore-active .mode-indicator {
+            background: #48bb78;
+        }
+        
+        .topic-marker {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        
+        .topic-marker:hover {
+            transform: scale(1.1);
+        }
+        
+        .topic-icon {
+            width: 36px;
+            height: 36px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.4);
+            font-size: 18px;
+        }
+        
+        .topic-icon.recent {
+            background: linear-gradient(135deg, #ed8936 0%, #dd6b20 100%);
+            box-shadow: 0 2px 8px rgba(237, 137, 54, 0.4);
+        }
+        
+        .topic-icon.older {
+            background: linear-gradient(135deg, #a0aec0 0%, #718096 100%);
+            box-shadow: 0 2px 8px rgba(160, 174, 192, 0.4);
+        }
+        
+        .topic-popup {
+            max-width: 320px;
+        }
+        
+        .topic-popup-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        
+        .topic-popup-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+        }
+        
+        .topic-popup-user {
+            font-weight: 600;
+            font-size: 14px;
+        }
+        
+        .topic-popup-time {
+            font-size: 12px;
+            color: #6b7280;
+        }
+        
+        .topic-popup-title {
+            font-weight: 600;
+            font-size: 15px;
+            margin-bottom: 6px;
+        }
+        
+        .topic-popup-content {
+            font-size: 13px;
+            color: #374151;
+            line-height: 1.5;
+            margin-bottom: 10px;
+        }
+        
+        .topic-popup-image {
+            width: 100%;
+            height: 160px;
+            object-fit: cover;
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+        
+        .topic-popup-tags {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-bottom: 10px;
+        }
+        
+        .topic-tag {
+            padding: 4px 10px;
+            background: rgba(102, 126, 234, 0.1);
+            color: #667eea;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 500;
+        }
+        
+        .topic-popup-stats {
+            display: flex;
+            gap: 16px;
+            font-size: 12px;
+            color: #6b7280;
+            border-top: 1px solid #e5e7eb;
+            padding-top: 10px;
+        }
+        
+        .topic-stat {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .explore-hint {
+            position: absolute;
+            top: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(102, 126, 234, 0.9);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 14px;
+            z-index: 50;
+            display: none;
+        }
+        
+        .explore-hint.show {
+            display: block;
+        }
+        
         .weather-panel {
             position: absolute;
             top: 10px;
-            right: 280px;
+            left: 300px;
             z-index: 100;
             background: rgba(0, 0, 0, 0.75);
             color: white;
@@ -413,15 +582,49 @@
             font-size: 11px;
             color: #a0aec0;
         }
+        
+        .weather-effects {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 90;
+            opacity: 0;
+            transition: opacity 1s ease-in-out;
+        }
+        
+        .weather-effects.show {
+            opacity: 1;
+        }
+        
+        #weatherCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
     </style>
 </head>
 <body class="bg-gray-900">
     <div id="app" class="relative">
         <div id="map"></div>
         
+        <div id="weatherEffects" class="weather-effects">
+            <canvas id="weatherCanvas"></canvas>
+        </div>
+        
         <button id="modeToggleBtn" class="mode-toggle-btn" onclick="toggleViewMode()">
             <span class="mode-indicator" id="modeIndicator"></span>
             <span id="modeLabel">2D 视图</span>
+        </button>
+        
+        <button id="exploreToggleBtn" class="explore-toggle-btn" onclick="toggleExploreMode()">
+            <span class="mode-indicator" id="exploreIndicator"></span>
+            <span id="exploreLabel">探索模式</span>
         </button>
         
         <div id="viewControls" class="view-controls">
@@ -438,6 +641,10 @@
         
         <div id="pitchHint" class="pitch-hint">
             按住 Ctrl + 鼠标右键拖动可调整视角
+        </div>
+        
+        <div id="exploreHint" class="explore-hint">
+            放大地图（缩放级别 > 15）以查看周围话题
         </div>
         
         <button id="toggleDebugBtn" class="toggle-debug-btn" onclick="toggleDebug()">🔧 调试</button>
@@ -570,6 +777,15 @@
             city: null,
             district: null
         };
+        
+        let isExploreMode = false;
+        let topicMarkers = [];
+        let topicData = [];
+        let exploreDebounceTimer = null;
+        
+        const EXPLORE_MIN_ZOOM = 15;
+        const TOPIC_REGION_RADIUS_METERS = 500;
+        const TOPIC_PER_REGION = 3;
         let isWeatherLoading = false;
         let currentWeatherData = null;
 
@@ -611,6 +827,421 @@
             '强沙尘暴': '🌪️',
             '霾': '🌫️'
         };
+
+        function isRainWeather(weather) {
+            if (!weather) return false;
+            const rainPatterns = ['雨', '阵雨', '雷阵雨', '小雨', '中雨', '大雨', '暴雨', '冻雨'];
+            return rainPatterns.some(pattern => weather.includes(pattern));
+        }
+
+        function getRainIntensity(weather) {
+            if (!weather) return null;
+            
+            const heavyRainPatterns = ['暴雨', '大暴雨', '特大暴雨', '大雨-暴雨', '暴雨-大暴雨', '大暴雨-特大暴雨'];
+            for (const pattern of heavyRainPatterns) {
+                if (weather.includes(pattern)) {
+                    return 'heavy';
+                }
+            }
+            
+            const mediumRainPatterns = ['大雨', '中雨-大雨', '雷阵雨', '雷阵雨并伴有冰雹', '冻雨'];
+            for (const pattern of mediumRainPatterns) {
+                if (weather.includes(pattern)) {
+                    return 'medium';
+                }
+            }
+            
+            const lightRainPatterns = ['小雨', '阵雨', '小雨-中雨', '雨夹雪'];
+            for (const pattern of lightRainPatterns) {
+                if (weather.includes(pattern)) {
+                    return 'light';
+                }
+            }
+            
+            if (weather.includes('雨')) {
+                return 'medium';
+            }
+            
+            return null;
+        }
+
+        function isSnowWeather(weather) {
+            if (!weather) return false;
+            const snowPatterns = ['雪', '阵雪', '小雪', '中雪', '大雪', '暴雪', '雨夹雪'];
+            return snowPatterns.some(pattern => weather.includes(pattern));
+        }
+
+        function isCloudWeather(weather) {
+            if (!weather) return false;
+            const cloudPatterns = ['多云', '阴'];
+            return cloudPatterns.some(pattern => weather.includes(pattern));
+        }
+
+        class WeatherEffectManager {
+            constructor() {
+                this.canvas = null;
+                this.ctx = null;
+                this.width = 0;
+                this.height = 0;
+                this.animationId = null;
+                this.currentEffect = null;
+                this.currentRainIntensity = null;
+                
+                this.rainDrops = [];
+                this.snowFlakes = [];
+                this.clouds = [];
+                
+                this.rainConfig = {
+                    light: { count: 150, speed: 8, opacity: 0.6, width: 1, length: 15 },
+                    medium: { count: 300, speed: 12, opacity: 0.8, width: 2, length: 20 },
+                    heavy: { count: 500, speed: 18, opacity: 1, width: 3, length: 30 }
+                };
+                
+                this.snowConfig = {
+                    count: 200,
+                    speedRange: [1, 3],
+                    sizeRange: [2, 8],
+                    opacityRange: [0.6, 0.9]
+                };
+                
+                this.cloudConfig = {
+                    count: 12,
+                    speed: 0.5,
+                    opacity: 0.6
+                };
+            }
+            
+            init() {
+                this.canvas = document.getElementById('weatherCanvas');
+                if (!this.canvas) {
+                    log('天气Canvas元素未找到');
+                    return false;
+                }
+                
+                this.ctx = this.canvas.getContext('2d');
+                this.resize();
+                
+                window.addEventListener('resize', () => this.resize());
+                
+                log('天气效果管理器初始化完成');
+                return true;
+            }
+            
+            resize() {
+                if (!this.canvas) return;
+                
+                this.width = window.innerWidth;
+                this.height = window.innerHeight;
+                
+                this.canvas.width = this.width;
+                this.canvas.height = this.height;
+                
+                log('天气Canvas尺寸更新:', this.width, 'x', this.height);
+            }
+            
+            startEffect(effect, rainIntensity = null) {
+                if (this.currentEffect === effect && 
+                    (effect !== 'rain' || this.currentRainIntensity === rainIntensity)) {
+                    return;
+                }
+                
+                this.stopEffect();
+                
+                this.currentEffect = effect;
+                this.currentRainIntensity = rainIntensity;
+                
+                switch (effect) {
+                    case 'rain':
+                        this.initRain(rainIntensity);
+                        break;
+                    case 'snow':
+                        this.initSnow();
+                        break;
+                    case 'clouds':
+                        this.initClouds();
+                        break;
+                }
+                
+                this.startAnimation();
+                
+                const weatherEffects = document.getElementById('weatherEffects');
+                if (weatherEffects) {
+                    weatherEffects.classList.add('show');
+                }
+                
+                log('天气效果已启动:', effect, rainIntensity ? `(${rainIntensity})` : '');
+            }
+            
+            stopEffect() {
+                if (this.animationId) {
+                    cancelAnimationFrame(this.animationId);
+                    this.animationId = null;
+                }
+                
+                this.rainDrops = [];
+                this.snowFlakes = [];
+                this.clouds = [];
+                
+                if (this.ctx) {
+                    this.ctx.clearRect(0, 0, this.width, this.height);
+                }
+                
+                const weatherEffects = document.getElementById('weatherEffects');
+                if (weatherEffects) {
+                    weatherEffects.classList.remove('show');
+                }
+                
+                this.currentEffect = null;
+                this.currentRainIntensity = null;
+            }
+            
+            initRain(intensity) {
+                const config = this.rainConfig[intensity] || this.rainConfig.medium;
+                this.rainDrops = [];
+                
+                for (let i = 0; i < config.count; i++) {
+                    this.rainDrops.push({
+                        x: Math.random() * this.width,
+                        y: Math.random() * this.height,
+                        speed: config.speed + Math.random() * 2,
+                        opacity: config.opacity * (0.7 + Math.random() * 0.3),
+                        width: config.width + Math.random(),
+                        length: config.length + Math.random() * 10
+                    });
+                }
+            }
+            
+            initSnow() {
+                const config = this.snowConfig;
+                this.snowFlakes = [];
+                
+                for (let i = 0; i < config.count; i++) {
+                    this.snowFlakes.push({
+                        x: Math.random() * this.width,
+                        y: Math.random() * this.height,
+                        speed: config.speedRange[0] + Math.random() * (config.speedRange[1] - config.speedRange[0]),
+                        size: config.sizeRange[0] + Math.random() * (config.sizeRange[1] - config.sizeRange[0]),
+                        opacity: config.opacityRange[0] + Math.random() * (config.opacityRange[1] - config.opacityRange[0]),
+                        drift: Math.random() * 2 - 1,
+                        rotation: Math.random() * Math.PI * 2,
+                        rotationSpeed: (Math.random() - 0.5) * 0.05
+                    });
+                }
+            }
+            
+            initClouds() {
+                const config = this.cloudConfig;
+                this.clouds = [];
+                
+                for (let i = 0; i < config.count; i++) {
+                    const cloudWidth = 200 + Math.random() * 300;
+                    const cloudHeight = 80 + Math.random() * 100;
+                    
+                    const circles = [];
+                    const circleCount = 6 + Math.floor(Math.random() * 4);
+                    for (let j = 0; j < circleCount; j++) {
+                        circles.push({
+                            offsetX: Math.random() * cloudWidth,
+                            offsetY: Math.random() * cloudHeight,
+                            radius: 40 + Math.random() * 60
+                        });
+                    }
+                    
+                    this.clouds.push({
+                        x: Math.random() * (this.width + 400) - 400,
+                        y: Math.random() * (this.height * 0.35),
+                        width: cloudWidth,
+                        height: cloudHeight,
+                        speed: config.speed * (0.4 + Math.random() * 0.8),
+                        opacity: config.opacity * (0.7 + Math.random() * 0.3),
+                        circles: circles
+                    });
+                }
+            }
+            
+            startAnimation() {
+                const animate = () => {
+                    if (!this.ctx) return;
+                    
+                    this.ctx.clearRect(0, 0, this.width, this.height);
+                    
+                    switch (this.currentEffect) {
+                        case 'rain':
+                            this.drawRain();
+                            break;
+                        case 'snow':
+                            this.drawSnow();
+                            break;
+                        case 'clouds':
+                            this.drawClouds();
+                            break;
+                    }
+                    
+                    this.animationId = requestAnimationFrame(animate);
+                };
+                
+                animate();
+            }
+            
+            drawRain() {
+                const gradient = this.ctx.createLinearGradient(0, 0, 0, this.height);
+                gradient.addColorStop(0, 'rgba(147, 197, 253, 0)');
+                gradient.addColorStop(1, 'rgba(100, 149, 237, 0.9)');
+                
+                this.rainDrops.forEach(drop => {
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(drop.x, drop.y);
+                    this.ctx.lineTo(drop.x, drop.y + drop.length);
+                    this.ctx.strokeStyle = `rgba(147, 197, 253, ${drop.opacity})`;
+                    this.ctx.lineWidth = drop.width;
+                    this.ctx.lineCap = 'round';
+                    this.ctx.stroke();
+                    
+                    drop.y += drop.speed;
+                    
+                    if (drop.y > this.height) {
+                        drop.y = -drop.length;
+                        drop.x = Math.random() * this.width;
+                    }
+                });
+            }
+            
+            drawSnow() {
+                this.snowFlakes.forEach(flake => {
+                    this.ctx.save();
+                    this.ctx.translate(flake.x, flake.y);
+                    this.ctx.rotate(flake.rotation);
+                    
+                    this.ctx.beginPath();
+                    this.ctx.arc(0, 0, flake.size / 2, 0, Math.PI * 2);
+                    this.ctx.fillStyle = `rgba(255, 255, 255, ${flake.opacity})`;
+                    this.ctx.fill();
+                    
+                    this.ctx.restore();
+                    
+                    flake.y += flake.speed;
+                    flake.x += Math.sin(flake.y * 0.01) * flake.drift;
+                    flake.rotation += flake.rotationSpeed;
+                    
+                    if (flake.y > this.height) {
+                        flake.y = -flake.size;
+                        flake.x = Math.random() * this.width;
+                    }
+                    
+                    if (flake.x < -flake.size) {
+                        flake.x = this.width + flake.size;
+                    } else if (flake.x > this.width + flake.size) {
+                        flake.x = -flake.size;
+                    }
+                });
+            }
+            
+            drawClouds() {
+                this.clouds.forEach(cloud => {
+                    this.ctx.save();
+                    
+                    this.ctx.globalAlpha = cloud.opacity;
+                    
+                    cloud.circles.forEach(circle => {
+                        const cx = cloud.x + circle.offsetX;
+                        const cy = cloud.y + circle.offsetY;
+                        const r = circle.radius;
+                        
+                        const gradient = this.ctx.createRadialGradient(
+                            cx, cy, 0,
+                            cx, cy, r
+                        );
+                        gradient.addColorStop(0, 'rgba(255, 255, 255, 0.9)');
+                        gradient.addColorStop(0.5, 'rgba(255, 255, 255, 0.7)');
+                        gradient.addColorStop(1, 'rgba(255, 255, 255, 0)');
+                        
+                        this.ctx.fillStyle = gradient;
+                        this.ctx.beginPath();
+                        this.ctx.arc(cx, cy, r, 0, Math.PI * 2);
+                        this.ctx.fill();
+                    });
+                    
+                    this.ctx.restore();
+                    
+                    cloud.x += cloud.speed;
+                    
+                    if (cloud.x > this.width + cloud.width) {
+                        cloud.x = -cloud.width;
+                        cloud.y = Math.random() * (this.height * 0.35);
+                    }
+                });
+            }
+        }
+        
+        let weatherEffectManager = null;
+        
+        function initWeatherEffectManager() {
+            if (!weatherEffectManager) {
+                weatherEffectManager = new WeatherEffectManager();
+                weatherEffectManager.init();
+            }
+            return weatherEffectManager;
+        }
+        
+        let currentWeatherEffect = null;
+        let currentRainIntensity = null;
+
+        function updateWeatherEffects(weather) {
+            const manager = initWeatherEffectManager();
+            if (!manager) {
+                log('天气效果管理器未初始化');
+                return;
+            }
+            
+            let newEffect = null;
+            let newRainIntensity = null;
+            
+            if (isSnowWeather(weather)) {
+                newEffect = 'snow';
+                log('显示下雪效果');
+            } else if (isRainWeather(weather)) {
+                const intensity = getRainIntensity(weather);
+                newRainIntensity = intensity;
+                newEffect = 'rain';
+                
+                if (intensity === 'heavy') {
+                    log('显示大雨效果');
+                } else if (intensity === 'medium') {
+                    log('显示中雨效果');
+                } else {
+                    log('显示小雨效果');
+                }
+            } else if (isCloudWeather(weather)) {
+                newEffect = 'clouds';
+                log('显示多云效果');
+            }
+            
+            const effectChanged = currentWeatherEffect !== newEffect;
+            const intensityChanged = newEffect === 'rain' && currentRainIntensity !== newRainIntensity;
+            
+            if (effectChanged || intensityChanged) {
+                currentWeatherEffect = newEffect;
+                currentRainIntensity = newRainIntensity;
+                
+                if (newEffect) {
+                    manager.startEffect(newEffect, newRainIntensity);
+                } else {
+                    manager.stopEffect();
+                }
+                
+                log('天气效果已切换:', newEffect || '无', newRainIntensity ? `(${newRainIntensity})` : '');
+            }
+        }
+
+        function clearWeatherEffects() {
+            const manager = weatherEffectManager;
+            if (manager) {
+                manager.stopEffect();
+            }
+            
+            currentWeatherEffect = null;
+            log('已清除所有天气效果');
+        }
 
         const MIN_ZOOM = 6;
         const MAX_ZOOM = 12;
@@ -885,6 +1516,344 @@
 
             updateDebugPanel();
             setMapStatus(is3DMode ? '已切换到 3D 视图' : '已切换到 2D 视图', 'ok');
+        }
+
+        function toggleExploreMode() {
+            if (!map) {
+                log('地图尚未初始化，无法切换探索模式');
+                return;
+            }
+
+            isExploreMode = !isExploreMode;
+            log('切换探索模式:', isExploreMode ? '开启' : '关闭');
+
+            const toggleBtn = document.getElementById('exploreToggleBtn');
+            const modeLabel = document.getElementById('exploreLabel');
+
+            if (isExploreMode) {
+                toggleBtn.classList.add('explore-active');
+                modeLabel.textContent = '探索中';
+                setMapStatus('探索模式已开启', 'ok');
+                
+                const zoom = map.getZoom();
+                if (zoom <= EXPLORE_MIN_ZOOM) {
+                    showExploreHint();
+                } else {
+                    handleExploreMapMove();
+                }
+            } else {
+                toggleBtn.classList.remove('explore-active');
+                modeLabel.textContent = '探索模式';
+                clearTopicMarkers();
+                setMapStatus('探索模式已关闭', 'ok');
+            }
+
+            updateDebugPanel();
+        }
+
+        function showExploreHint() {
+            const hint = document.getElementById('exploreHint');
+            hint.classList.add('show');
+            
+            setTimeout(() => {
+                hint.classList.remove('show');
+            }, 5000);
+        }
+
+        function getTopicTimeCategory(createdAt) {
+            const now = new Date();
+            const created = new Date(createdAt);
+            const diffMs = now - created;
+            const diffDays = diffMs / (24 * 60 * 60 * 1000);
+            
+            if (diffDays <= 1) {
+                return 'today';
+            } else if (diffDays <= 3) {
+                return 'recent';
+            } else if (diffDays <= 7) {
+                return 'older';
+            }
+            return 'older';
+        }
+
+        function formatTimeAgo(createdAt) {
+            const now = new Date();
+            const created = new Date(createdAt);
+            const diffMs = now - created;
+            const diffHours = diffMs / (60 * 60 * 1000);
+            const diffDays = diffMs / (24 * 60 * 60 * 1000);
+            
+            if (diffHours < 1) {
+                const minutes = Math.floor(diffHours * 60);
+                return `${minutes}分钟前`;
+            } else if (diffHours < 24) {
+                const hours = Math.floor(diffHours);
+                return `${hours}小时前`;
+            } else if (diffDays < 7) {
+                const days = Math.floor(diffDays);
+                return `${days}天前`;
+            } else {
+                return created.toLocaleDateString('zh-CN');
+            }
+        }
+
+        function haversineDistance(lat1, lon1, lat2, lon2) {
+            const R = 6371.0;
+            const lat1Rad = Math.PI * lat1 / 180;
+            const lon1Rad = Math.PI * lon1 / 180;
+            const lat2Rad = Math.PI * lat2 / 180;
+            const lon2Rad = Math.PI * lon2 / 180;
+            
+            const dlon = lon2Rad - lon1Rad;
+            const dlat = lat2Rad - lat1Rad;
+            
+            const a = Math.sin(dlat / 2)**2 + Math.cos(lat1Rad) * Math.cos(lat2Rad) * Math.sin(dlon / 2)**2;
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            
+            const distance = R * c;
+            return distance;
+        }
+
+        function metersToLatitudeOffset(meters) {
+            return meters / 111000;
+        }
+
+        function metersToLongitudeOffset(meters, latitude) {
+            const latRad = Math.PI * latitude / 180;
+            return meters / (111000 * Math.cos(latRad));
+        }
+
+        function groupTopicsByRegion(topics, centerLat, centerLon) {
+            const regionRadiusKm = TOPIC_REGION_RADIUS_METERS / 1000;
+            
+            const regions = {};
+            
+            topics.forEach(topic => {
+                const distance = haversineDistance(centerLat, centerLon, topic.lat, topic.lon);
+                
+                const regionKey = Math.floor(distance / regionRadiusKm);
+                
+                if (!regions[regionKey]) {
+                    regions[regionKey] = [];
+                }
+                regions[regionKey].push({
+                    ...topic,
+                    distance_km: distance,
+                    time_category: getTopicTimeCategory(topic.created_at)
+                });
+            });
+            
+            const result = {};
+            for (const [regionKey, regionTopics] of Object.entries(regions)) {
+                regionTopics.sort((a, b) => {
+                    const timeOrder = { 'today': 0, 'recent': 1, 'older': 2 };
+                    const timeDiff = timeOrder[a.time_category] - timeOrder[b.time_category];
+                    if (timeDiff !== 0) return timeDiff;
+                    
+                    if (b.hot_score !== a.hot_score) {
+                        return b.hot_score - a.hot_score;
+                    }
+                    
+                    return new Date(b.created_at) - new Date(a.created_at);
+                });
+                
+                result[regionKey] = regionTopics.slice(0, TOPIC_PER_REGION);
+            }
+            
+            return result;
+        }
+
+        function clearTopicMarkers() {
+            log('清除话题标记, 当前数量:', topicMarkers.length);
+            topicMarkers.forEach(marker => marker.remove());
+            topicMarkers = [];
+            topicData = [];
+        }
+
+        function addTopicMarker(topic) {
+            const el = document.createElement('div');
+            el.className = 'topic-marker';
+            
+            const timeCategory = getTopicTimeCategory(topic.created_at);
+            
+            let opacity = 1;
+            let iconClass = 'topic-icon';
+            
+            if (timeCategory === 'recent') {
+                opacity = 0.7;
+                iconClass += ' recent';
+            } else if (timeCategory === 'older') {
+                opacity = 0.4;
+                iconClass += ' older';
+            }
+            
+            el.style.opacity = opacity;
+            
+            const markerIcon = document.createElement('div');
+            markerIcon.className = iconClass;
+            markerIcon.innerHTML = '💬';
+            el.appendChild(markerIcon);
+            
+            let imageHtml = '';
+            if (topic.image_url) {
+                imageHtml = `<img src="${topic.image_url}" class="topic-popup-image" alt="话题图片" />`;
+            }
+            
+            let tagsHtml = '';
+            if (topic.tags && topic.tags.length > 0) {
+                tagsHtml = '<div class="topic-popup-tags">';
+                topic.tags.forEach(tag => {
+                    tagsHtml += `<span class="topic-tag">${tag}</span>`;
+                });
+                tagsHtml += '</div>';
+            }
+            
+            const timeAgo = formatTimeAgo(topic.created_at);
+            
+            const popupContent = `
+                <div class="topic-popup">
+                    <div class="topic-popup-header">
+                        <div class="topic-popup-avatar">${topic.user_avatar || '👤'}</div>
+                        <div>
+                            <div class="topic-popup-user">${topic.user_name}</div>
+                            <div class="topic-popup-time">${timeAgo}</div>
+                        </div>
+                    </div>
+                    ${imageHtml}
+                    <div class="topic-popup-title">${topic.title}</div>
+                    <div class="topic-popup-content">${topic.content}</div>
+                    ${tagsHtml}
+                    <div class="topic-popup-stats">
+                        <span class="topic-stat">❤️ ${topic.like_count}</span>
+                        <span class="topic-stat">💬 ${topic.comment_count}</span>
+                        <span class="topic-stat">🔗 ${topic.share_count}</span>
+                    </div>
+                </div>
+            `;
+            
+            const popup = new maplibregl.Popup({
+                offset: 25,
+                closeButton: true,
+                closeOnClick: false
+            }).setHTML(popupContent);
+            
+            const marker = new maplibregl.Marker(el)
+                .setLngLat([topic.lon, topic.lat])
+                .setPopup(popup)
+                .addTo(map);
+            
+            topicMarkers.push(marker);
+            log('话题标记已添加:', topic.title, '时间类别:', timeCategory, '透明度:', opacity);
+        }
+
+        async function loadTopics(lat, lon, radiusMeters) {
+            log('='.repeat(40));
+            log('加载话题数据');
+            log('='.repeat(40));
+            log('参数:');
+            log('  - 纬度:', lat);
+            log('  - 经度:', lon);
+            log('  - 半径:', radiusMeters, '米');
+            
+            try {
+                const bounds = map.getBounds();
+                let url = `/api/topics?lat=${lat}&lon=${lon}&radius=${radiusMeters}`;
+                
+                if (bounds) {
+                    const sw = bounds.getSouthWest();
+                    const ne = bounds.getNorthEast();
+                    url += `&sw_lat=${sw.lat}&sw_lon=${sw.lng}&ne_lat=${ne.lat}&ne_lon=${ne.lng}`;
+                }
+                
+                log('请求 URL:', url);
+                
+                const response = await fetch(url);
+                log('响应状态:', response.status);
+                
+                if (!response.ok) {
+                    log('✗ API 请求失败, 状态:', response.status);
+                    throw new Error(`API 请求失败 (状态: ${response.status})`);
+                }
+                
+                const data = await response.json();
+                log('✓ API 响应:');
+                log('  - 总数:', data.total);
+                log('  - 话题列表:', data.topics ? data.topics.map(t => t.title) : '无数据');
+                
+                topicData = data.topics || [];
+                
+                if (topicData.length > 0) {
+                    log('按区域分组话题...');
+                    const grouped = groupTopicsByRegion(topicData, lat, lon);
+                    
+                    clearTopicMarkers();
+                    
+                    let addedCount = 0;
+                    for (const [regionKey, regionTopics] of Object.entries(grouped)) {
+                        log(`  区域 ${regionKey}: ${regionTopics.length} 个话题`);
+                        
+                        regionTopics.forEach(topic => {
+                            addTopicMarker(topic);
+                            addedCount++;
+                        });
+                    }
+                    
+                    log(`✓ 共添加 ${addedCount} 个话题标记 (总共有 ${topicData.length} 个话题)`);
+                    setMapStatus(`探索模式: 已加载 ${addedCount} 个话题`, 'ok');
+                } else {
+                    log('当前区域没有找到话题');
+                    setMapStatus('探索模式: 当前区域无话题', 'warning');
+                }
+                
+            } catch (error) {
+                log('✗ 加载话题失败:', error);
+                showError('加载话题失败: ' + error.message);
+            }
+        }
+
+        function handleExploreMapMove() {
+            if (!isExploreMode || !map) return;
+            
+            const zoom = map.getZoom();
+            log('handleExploreMapMove - 缩放级别:', zoom.toFixed(2));
+            
+            if (zoom <= EXPLORE_MIN_ZOOM) {
+                log('缩放级别 <= 15，隐藏话题标记');
+                clearTopicMarkers();
+                return;
+            }
+            
+            if (exploreDebounceTimer) {
+                clearTimeout(exploreDebounceTimer);
+            }
+            
+            exploreDebounceTimer = setTimeout(() => {
+                const center = map.getCenter();
+                const bounds = map.getBounds();
+                
+                let radiusMeters = TOPIC_REGION_RADIUS_METERS * 3;
+                
+                if (bounds) {
+                    const sw = bounds.getSouthWest();
+                    const ne = bounds.getNorthEast();
+                    const centerLat = (sw.lat + ne.lat) / 2;
+                    
+                    const widthMeters = (ne.lng - sw.lng) * 111000 * Math.cos(Math.PI * centerLat / 180);
+                    const heightMeters = (ne.lat - sw.lat) * 111000;
+                    
+                    radiusMeters = Math.max(widthMeters, heightMeters) / 2 + TOPIC_REGION_RADIUS_METERS;
+                }
+                
+                log('防抖延迟结束，获取话题数据:', {
+                    lat: center.lat.toFixed(4),
+                    lon: center.lng.toFixed(4),
+                    radius: Math.round(radiusMeters)
+                });
+                
+                loadTopics(center.lat, center.lng, radiusMeters);
+            }, 300);
+            
+            log(`已设置探索模式防抖定时器 (300ms)`);
         }
 
         function showZoomHintForBuildings() {
@@ -1421,14 +2390,14 @@
             try {
                 log('创建地图实例...');
                 log('地图初始配置:');
-                log('  - 中心: 116.4074, 39.9042 (北京)');
+                log('  - 中心: 121.4737, 31.2304 (上海)');
                 log('  - 初始缩放: 10');
                 log('  - 地图源:', styleName);
                 
                 map = new maplibregl.Map({
                     container: 'map',
                     style: style,
-                    center: [116.4074, 39.9042],
+                    center: [121.4737, 31.2304],
                     zoom: 10,
                     pitch: 0,
                     bearing: 0,
@@ -1601,6 +2570,7 @@
                     log('地图移动结束');
                     handleMapMoveEnd();
                     handleWeatherMapMove();
+                    handleExploreMapMove();
                 }, 300));
                 
                 map.on('zoom', () => {
@@ -1611,6 +2581,11 @@
                     
                     if (zoom < MIN_ZOOM) {
                         showZoomHint();
+                    }
+                    
+                    if (isExploreMode && zoom <= EXPLORE_MIN_ZOOM) {
+                        clearTopicMarkers();
+                        showExploreHint();
                     }
                     
                     const weatherPanel = document.getElementById('weatherPanel');
@@ -1756,6 +2731,7 @@
                 panel.classList.remove('show');
                 log('天气面板隐藏（透明度渐变）');
             }
+            clearWeatherEffects();
         }
 
         function updateWeatherDisplay(data) {
@@ -1819,6 +2795,8 @@
                     const time = weatherLive.reporttime;
                     timeEl.textContent = time.substring(11, 16) || '--:--';
                 }
+                
+                updateWeatherEffects(weatherLive.weather);
             }
 
             currentWeatherData = data;
@@ -2082,6 +3060,7 @@
         window.closePanorama = closePanorama;
         window.toggleDebug = toggleDebug;
         window.toggleViewMode = toggleViewMode;
+        window.toggleExploreMode = toggleExploreMode;
         window.setPitch = setPitch;
         window.setBearing = setBearing;
         window.rotateView = rotateView;
