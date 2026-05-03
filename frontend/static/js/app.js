@@ -1966,7 +1966,7 @@ let map;
         }
 
         function openSpotPopup(spot) {
-            if (!map || !spot) return;
+            if (!map || !spot || !scenicLayerVisible) return;
             if (activeSpotPopup) {
                 activeSpotPopup.remove();
             }
@@ -1982,7 +1982,7 @@ let map;
         }
 
         function openNearestSpotPopup(lngLat, maxDistanceMeters = 650) {
-            if (!spotData || spotData.length === 0) return false;
+            if (!scenicLayerVisible || !spotData || spotData.length === 0) return false;
             let nearest = null;
             let minDistance = Infinity;
             for (const spot of spotData) {
@@ -2001,8 +2001,8 @@ let map;
         }
 
         async function openNearestOrFetchSpotPopup(lngLat, maxDistanceMeters = 650) {
-            if (openNearestSpotPopup(lngLat, maxDistanceMeters)) return true;
             if (!scenicLayerVisible) return false;
+            if (openNearestSpotPopup(lngLat, maxDistanceMeters)) return true;
             try {
                 const response = await fetch(`/api/scenic_spots?lat=${lngLat.lat}&lon=${lngLat.lng}&radius=1`);
                 if (!response.ok) return false;
@@ -2133,6 +2133,10 @@ let map;
                 handleMapMoveEnd();
             } else {
                 clearMarkers();
+                if (activeSpotPopup) {
+                    activeSpotPopup.remove();
+                    activeSpotPopup = null;
+                }
             }
             updateDebugPanel();
         }
@@ -2268,11 +2272,12 @@ let map;
 
         function getTopicIconSvg() {
             return `
-                <svg class="topic-icon-svg" viewBox="0 0 24 24" aria-hidden="true">
-                    <path d="M12 3.5c-5 0-9 3.25-9 7.25 0 2.45 1.48 4.62 3.76 5.94l-.62 2.9a.75.75 0 0 0 1.08.8l3.36-1.72c.46.06.93.08 1.42.08 5 0 9-3.25 9-7.25S17 3.5 12 3.5Z" fill="currentColor"/>
-                    <circle cx="8.5" cy="10.9" r="1.05" fill="white" opacity=".92"/>
-                    <circle cx="12" cy="10.9" r="1.05" fill="white" opacity=".92"/>
-                    <circle cx="15.5" cy="10.9" r="1.05" fill="white" opacity=".92"/>
+                <svg class="topic-icon-svg" viewBox="0 0 32 32" aria-hidden="true">
+                    <path class="topic-icon-hex" d="M16 2.6 27.6 9.3v13.4L16 29.4 4.4 22.7V9.3L16 2.6Z"/>
+                    <path class="topic-icon-chat" d="M10 12.3c0-2.05 1.9-3.7 4.24-3.7h3.52c2.34 0 4.24 1.65 4.24 3.7v2.2c0 2.05-1.9 3.7-4.24 3.7h-1.14l-3.02 2.35c-.46.36-1.15 0-1.08-.57l.22-1.8C11.14 17.65 10 16.22 10 14.5v-2.2Z"/>
+                    <circle cx="13.2" cy="13.7" r="1"/>
+                    <circle cx="16" cy="13.7" r="1"/>
+                    <circle cx="18.8" cy="13.7" r="1"/>
                 </svg>
             `;
         }
