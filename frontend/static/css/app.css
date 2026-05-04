@@ -14,6 +14,12 @@ html, body, #app {
             height: 100%;
             width: 100%;
         }
+        .source-aware-geolocate-btn {
+            font-size: 18px;
+            line-height: 29px;
+            font-weight: 700;
+            color: #333;
+        }
         .fog-layer {
             position: absolute;
             inset: 0;
@@ -38,8 +44,33 @@ html, body, #app {
         .fog-layer.hidden {
             opacity: 0;
         }
+        .fog-layer.shader-backdrop {
+            opacity: 0.28;
+            backdrop-filter: grayscale(0.55) saturate(0.68) contrast(1.08) brightness(0.84);
+        }
         .maplibregl-marker {
             z-index: 5;
+        }
+        .maplibregl-marker.topic-marker-layer,
+        .maplibregl-marker:has(.topic-marker) {
+            z-index: 20 !important;
+        }
+        .maplibregl-popup.topic-popup-layer {
+            z-index: 30 !important;
+        }
+        .fog-unlock-canvas {
+            position: absolute;
+            inset: 0;
+            z-index: 3;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+        }
+        .fog-unlock-canvas.shader-fog {
+            mix-blend-mode: normal;
+        }
+        .fog-unlock-canvas.canvas-fog {
+            mix-blend-mode: multiply;
         }
         .marker-icon {
             width: 38px;
@@ -907,7 +938,7 @@ html, body, #app {
         .layer-panel {
             position: absolute;
             right: 10px;
-            top: 58px;
+            top: 150px;
             z-index: 101;
             background: rgba(15, 23, 42, 0.86);
             color: white;

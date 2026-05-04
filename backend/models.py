@@ -76,6 +76,32 @@ class ConfigResponse(BaseModel):
     debug_info: dict[str, Any]
 
 
+class FogUnlockRequest(BaseModel):
+    user_id: str = Field(..., description="匿名用户ID", min_length=1, max_length=128)
+    lat: float = Field(..., description="纬度", ge=-90, le=90)
+    lon: float = Field(..., description="经度", ge=-180, le=180)
+
+
+class UnlockedH3Cell(BaseModel):
+    h3_index: str
+    resolution: int
+    unlock_type: str
+    unlocked_at: str | None = None
+    boundary: list[list[float]]
+
+
+class FogUnlockResponse(BaseModel):
+    success: bool
+    center_h3: str
+    unlocked_h3_indexes: list[str]
+    cells: list[UnlockedH3Cell]
+
+
+class FogCellsResponse(BaseModel):
+    total: int
+    cells: list[UnlockedH3Cell]
+
+
 class TopicCreate(BaseModel):
     user_name: str = Field(..., description="用户名", min_length=1, max_length=50)
     content: str = Field(..., description="话题内容", min_length=1, max_length=1000)

@@ -8,12 +8,21 @@ import h3
 
 
 H3_RESOLUTION = 9
+FOG_H3_RESOLUTION = 8
 HEAT_GRAVITY = 1.6
 BEACON_THRESHOLD = 10.0
 
 
 def get_h3_index(lat: float, lon: float, resolution: int = H3_RESOLUTION) -> str:
     return h3.latlng_to_cell(lat, lon, resolution)
+
+
+def get_h3_cell_boundary(h3_index: str) -> list[list[float]]:
+    return [[lon, lat] for lat, lon in h3.cell_to_boundary(h3_index)]
+
+
+def get_h3_disk(h3_index: str, radius: int = 1) -> list[str]:
+    return list(h3.grid_disk(h3_index, radius))
 
 
 def calculate_topic_score(topic: dict[str, Any], now: datetime | None = None) -> float:

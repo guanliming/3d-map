@@ -33,6 +33,19 @@ let map;
         let beaconMarkers = [];
         let topicData = [];
         let topicsDebounceTimer = null;
+        let fogUserId = null;
+        let unlockedFogCells = [];
+        let fogWatchId = null;
+        let lastUnlockedH3 = null;
+        let lastUnlockLocation = null;
+        let fogRenderer = null;
+        let pendingFogRender = false;
+        let lastFogRenderAt = 0;
+        let mapInitialLoadComplete = false;
+        let mapTilerFallbackTriggered = false;
+
+        const FOG_MASK_SIZE = 512;
+        const FOG_UPDATE_INTERVAL = 200;
 
         const TOPICS_HEAT_MIN_ZOOM = 12;
         const TOPICS_BUBBLE_MIN_ZOOM = 15;
@@ -1275,6 +1288,456 @@ let map;
             }, 8000);
         }
 
+        class SourceAwareGeolocateControl {
+            onAdd(mapInstance) {
+                this.map = mapInstance;
+                this.container = document.createElement('div');
+                this.container.className = 'maplibregl-ctrl maplibregl-ctrl-group';
+                const button = document.createElement('button');
+                button.type = 'button';
+                button.className = 'source-aware-geolocate-btn';
+                button.title = '定位到当前位置';
+                button.setAttribute('aria-label', '定位到当前位置');
+                button.innerHTML = '◎';
+                button.addEventListener('click', () => this.locate());
+                this.container.appendChild(button);
+                return this.container;
+            }
+
+            onRemove() {
+                this.container?.parentNode?.removeChild(this.container);
+                this.map = undefined;
+            }
+
+            locate() {
+                if (!navigator.geolocation || !this.map) return;
+                navigator.geolocation.getCurrentPosition(
+                    position => {
+                        const { latitude, longitude } = position.coords;
+                        const projected = getMapCoordinateFromWgs84(latitude, longitude);
+                        this.map.easeTo({ center: [projected.lon, projected.lat], zoom: Math.max(this.map.getZoom(), 15), duration: 650, essential: true });
+                        unlockFogAtLocation(latitude, longitude);
+                    },
+                    error => showError(`定位失败：${error.message}`),
+                    { enableHighAccuracy: true, timeout: 20000, maximumAge: 15000 }
+                );
+            }
+        }
+
+        function getFogUserId() {
+            const storageKey = 'map3d_fog_user_id';
+            let userId = localStorage.getItem(storageKey);
+            if (!userId) {
+                userId = `web_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+                localStorage.setItem(storageKey, userId);
+            }
+            return userId;
+        }
+
+        function createShader(gl, type, source) {
+            const shader = gl.createShader(type);
+            gl.shaderSource(shader, source);
+            gl.compileShader(shader);
+            if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+                const info = gl.getShaderInfoLog(shader);
+                gl.deleteShader(shader);
+                throw new Error(info || 'Shader compile failed');
+            }
+            return shader;
+        }
+
+        function createProgram(gl, vertexSource, fragmentSource) {
+            const program = gl.createProgram();
+            gl.attachShader(program, createShader(gl, gl.VERTEX_SHADER, vertexSource));
+            gl.attachShader(program, createShader(gl, gl.FRAGMENT_SHADER, fragmentSource));
+            gl.linkProgram(program);
+            if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+                const info = gl.getProgramInfoLog(program);
+                gl.deleteProgram(program);
+                throw new Error(info || 'Program link failed');
+            }
+            return program;
+        }
+
+        function isGcj02MapSource() {
+            return activeMapSource === 'amap';
+        }
+
+        function getMapCoordinateFromWgs84(lat, lon) {
+            return isGcj02MapSource() ? wgs84ToGcj02(lat, lon) : { lat, lon };
+        }
+
+        function getCellBoundaryForMap(cell) {
+            if (!cell || !cell.boundary) return [];
+            if (!isGcj02MapSource()) return cell.boundary;
+            return cell.boundary.map(([lon, lat]) => {
+                const converted = wgs84ToGcj02(lat, lon);
+                return [converted.lon, converted.lat];
+            });
+        }
+
+        function getVisibleFogCells() {
+            if (!map || !unlockedFogCells.length) return [];
+            const bounds = map.getBounds();
+            if (!bounds) return [];
+            const west = bounds.getWest();
+            const east = bounds.getEast();
+            const south = bounds.getSouth();
+            const north = bounds.getNorth();
+            return unlockedFogCells.filter(cell => getCellBoundaryForMap(cell).some(([lon, lat]) => lon >= west && lon <= east && lat >= south && lat <= north));
+        }
+
+        function compactFogCellsForRender(cells) {
+            if (!window.h3 || typeof window.h3.compactCells !== 'function') return cells;
+            try {
+                const byIndex = new Map(cells.map(cell => [cell.h3_index, cell]));
+                const compactIndexes = window.h3.compactCells(cells.map(cell => cell.h3_index));
+                return compactIndexes.map(h3Index => {
+                    const existing = byIndex.get(h3Index);
+                    if (existing) return existing;
+                    if (typeof window.h3.cellToBoundary !== 'function') return null;
+                    const boundary = window.h3.cellToBoundary(h3Index).map(([lat, lon]) => [lon, lat]);
+                    return { h3_index: h3Index, boundary, unlock_type: 'gps_adjacent' };
+                }).filter(Boolean);
+            } catch (error) {
+                log('h3-js compactCells 不可用，使用原始格子:', error.message);
+                return cells;
+            }
+        }
+
+        class ShaderFogRenderer {
+            constructor(canvas) {
+                this.canvas = canvas;
+                this.maskCanvas = document.createElement('canvas');
+                this.maskCanvas.width = FOG_MASK_SIZE;
+                this.maskCanvas.height = FOG_MASK_SIZE;
+                this.maskCtx = this.maskCanvas.getContext('2d', { alpha: false });
+                this.gl = canvas.getContext('webgl', { alpha: true, antialias: false, depth: false, stencil: false, premultipliedAlpha: false });
+                if (!this.gl) throw new Error('WebGL unavailable');
+
+                const gl = this.gl;
+                const vertexSource = `
+                    attribute vec2 a_position;
+                    varying vec2 v_uv;
+                    void main() {
+                        v_uv = a_position * 0.5 + 0.5;
+                        gl_Position = vec4(a_position, 0.0, 1.0);
+                    }
+                `;
+                const fragmentSource = `
+                    precision mediump float;
+                    uniform sampler2D u_mask;
+                    uniform float u_time;
+                    varying vec2 v_uv;
+                    void main() {
+                        float unlock = texture2D(u_mask, v_uv).r;
+                        float soft = smoothstep(0.18, 0.82, unlock);
+                        float vignette = smoothstep(0.15, 0.88, distance(v_uv, vec2(0.5)));
+                        float gridA = abs(fract((v_uv.x + v_uv.y * 0.58) * 26.0) - 0.5);
+                        float gridB = abs(fract((v_uv.x - v_uv.y * 0.58) * 26.0) - 0.5);
+                        float grid = 1.0 - smoothstep(0.0, 0.035, min(gridA, gridB));
+                        vec3 fogColor = mix(vec3(0.08, 0.12, 0.18), vec3(0.01, 0.03, 0.07), vignette);
+                        vec3 revealColor = vec3(0.10, 0.82, 0.92);
+                        float fogAlpha = mix(0.82, 0.0, soft);
+                        vec3 color = mix(fogColor + grid * 0.08, revealColor, soft * 0.22);
+                        float alpha = max(fogAlpha, grid * (1.0 - soft) * 0.16);
+                        gl_FragColor = vec4(color, alpha);
+                    }
+                `;
+                this.program = createProgram(gl, vertexSource, fragmentSource);
+                this.positionBuffer = gl.createBuffer();
+                gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
+                gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]), gl.STATIC_DRAW);
+                this.texture = gl.createTexture();
+                gl.bindTexture(gl.TEXTURE_2D, this.texture);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+                gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+                this.positionLocation = gl.getAttribLocation(this.program, 'a_position');
+                this.maskLocation = gl.getUniformLocation(this.program, 'u_mask');
+                this.timeLocation = gl.getUniformLocation(this.program, 'u_time');
+                this.resize();
+            }
+
+            resize() {
+                const dpr = window.devicePixelRatio || 1;
+                const width = window.innerWidth;
+                const height = window.innerHeight;
+                if (this.canvas.width !== width * dpr || this.canvas.height !== height * dpr) {
+                    this.canvas.width = width * dpr;
+                    this.canvas.height = height * dpr;
+                    this.canvas.style.width = `${width}px`;
+                    this.canvas.style.height = `${height}px`;
+                }
+                this.gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+            }
+
+            updateMask(cells) {
+                const ctx = this.maskCtx;
+                ctx.fillStyle = 'black';
+                ctx.fillRect(0, 0, FOG_MASK_SIZE, FOG_MASK_SIZE);
+                if (!map) return;
+
+                const renderCells = compactFogCellsForRender(getVisibleFogCells()).slice(0, 900);
+                ctx.fillStyle = 'white';
+                ctx.shadowColor = 'white';
+                ctx.shadowBlur = 10;
+                for (const cell of renderCells) {
+                    const points = getCellBoundaryForMap(cell).map(([lon, lat]) => map.project([lon, lat]));
+                    if (!points.length) continue;
+                    ctx.beginPath();
+                    points.forEach((point, index) => {
+                        const x = (point.x / window.innerWidth) * FOG_MASK_SIZE;
+                        const y = (point.y / window.innerHeight) * FOG_MASK_SIZE;
+                        if (index === 0) ctx.moveTo(x, y);
+                        else ctx.lineTo(x, y);
+                    });
+                    ctx.closePath();
+                    ctx.fill();
+                }
+                ctx.shadowBlur = 0;
+
+                const gl = this.gl;
+                gl.bindTexture(gl.TEXTURE_2D, this.texture);
+                gl.texImage2D(gl.TEXTURE_2D, 0, gl.LUMINANCE, gl.LUMINANCE, gl.UNSIGNED_BYTE, this.maskCanvas);
+            }
+
+            render(cells) {
+                this.resize();
+                this.updateMask(cells);
+                const gl = this.gl;
+                gl.clearColor(0, 0, 0, 0);
+                gl.clear(gl.COLOR_BUFFER_BIT);
+                gl.useProgram(this.program);
+                gl.bindBuffer(gl.ARRAY_BUFFER, this.positionBuffer);
+                gl.enableVertexAttribArray(this.positionLocation);
+                gl.vertexAttribPointer(this.positionLocation, 2, gl.FLOAT, false, 0, 0);
+                gl.activeTexture(gl.TEXTURE0);
+                gl.bindTexture(gl.TEXTURE_2D, this.texture);
+                gl.uniform1i(this.maskLocation, 0);
+                gl.uniform1f(this.timeLocation, performance.now() * 0.001);
+                gl.drawArrays(gl.TRIANGLES, 0, 6);
+            }
+        }
+
+        class CanvasFogRenderer {
+            constructor(canvas) {
+                this.canvas = canvas;
+                this.ctx = canvas.getContext('2d');
+            }
+
+            resize() {
+                const dpr = window.devicePixelRatio || 1;
+                const width = window.innerWidth;
+                const height = window.innerHeight;
+                if (this.canvas.width !== width * dpr || this.canvas.height !== height * dpr) {
+                    this.canvas.width = width * dpr;
+                    this.canvas.height = height * dpr;
+                    this.canvas.style.width = `${width}px`;
+                    this.canvas.style.height = `${height}px`;
+                }
+                this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                return { width, height };
+            }
+
+            render() {
+                const { width, height } = this.resize();
+                const ctx = this.ctx;
+                ctx.clearRect(0, 0, width, height);
+                ctx.fillStyle = 'rgba(2, 6, 23, 0.72)';
+                ctx.fillRect(0, 0, width, height);
+                const cells = getVisibleFogCells().slice(0, 900);
+                ctx.globalCompositeOperation = 'destination-out';
+                ctx.fillStyle = 'rgba(255,255,255,0.82)';
+                for (const cell of cells) {
+                    const points = getCellBoundaryForMap(cell).map(([lon, lat]) => map.project([lon, lat]));
+                    if (!points.length) continue;
+                    ctx.beginPath();
+                    points.forEach((point, index) => index === 0 ? ctx.moveTo(point.x, point.y) : ctx.lineTo(point.x, point.y));
+                    ctx.closePath();
+                    ctx.fill();
+                }
+                ctx.globalCompositeOperation = 'source-over';
+            }
+        }
+
+        function createFogRenderer() {
+            const canvas = document.getElementById('fogUnlockCanvas');
+            if (!canvas) return null;
+            const fogLayer = document.getElementById('fogLayer');
+            if (fogLayer) fogLayer.classList.add('shader-backdrop');
+            try {
+                const testCanvas = document.createElement('canvas');
+                const testGl = testCanvas.getContext('webgl');
+                const supportsShaderPath = !!testGl && !!testGl.getExtension('OES_standard_derivatives');
+                if (!supportsShaderPath) throw new Error('缺少复杂 Shader 所需 WebGL 扩展');
+                canvas.classList.add('shader-fog');
+                log('战争迷雾使用 WebGL mask texture shader 渲染');
+                return new ShaderFogRenderer(canvas);
+            } catch (error) {
+                canvas.classList.add('canvas-fog');
+                log('战争迷雾降级为 Canvas/fill 样式:', error.message);
+                return new CanvasFogRenderer(canvas);
+            }
+        }
+
+        function scheduleFogRender(force = false) {
+            if (!map) return;
+            const now = performance.now();
+            const delay = force ? 0 : Math.max(0, FOG_UPDATE_INTERVAL - (now - lastFogRenderAt));
+            if (pendingFogRender) return;
+            pendingFogRender = true;
+            setTimeout(() => {
+                pendingFogRender = false;
+                lastFogRenderAt = performance.now();
+                if (!fogRenderer) fogRenderer = createFogRenderer();
+                if (fogRenderer) fogRenderer.render(unlockedFogCells);
+            }, delay);
+        }
+
+        function renderUnlockedFogCells() {
+            scheduleFogRender();
+        }
+
+        async function loadUnlockedFogCells() {
+            if (!fogUserId) fogUserId = getFogUserId();
+            try {
+                const response = await fetch(`/api/fog/unlocked?user_id=${encodeURIComponent(fogUserId)}`);
+                if (!response.ok) return;
+                const data = await response.json();
+                unlockedFogCells = data.cells || [];
+                renderUnlockedFogCells();
+                log('已加载历史点亮迷雾格子:', unlockedFogCells.length);
+            } catch (error) {
+                log('加载历史迷雾失败:', error);
+            }
+        }
+
+        async function unlockFogAtLocation(lat, lon) {
+            if (!fogUserId) fogUserId = getFogUserId();
+            try {
+                const response = await fetch('/api/fog/unlock', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ user_id: fogUserId, lat, lon })
+                });
+                if (!response.ok) return;
+                const data = await response.json();
+                unlockedFogCells = data.cells || [];
+                lastUnlockedH3 = data.center_h3;
+                lastUnlockLocation = { lat, lon };
+                renderUnlockedFogCells();
+                log('当前位置已点亮迷雾:', data.center_h3, '累计:', unlockedFogCells.length);
+            } catch (error) {
+                log('点亮迷雾失败:', error);
+            }
+        }
+
+        // WGS-84 转 GCJ-02 (火星坐标系)
+        // 浏览器 GPS 返回的是 WGS-84，但国内地图使用 GCJ-02，需要转换
+        function wgs84ToGcj02(wgsLat, wgsLon) {
+            // 判断是否在中国范围外（粗略边界判断）
+            if (wgsLon < 72.004 || wgsLon > 137.8347 || wgsLat < 0.8293 || wgsLat > 55.8271) {
+                return { lat: wgsLat, lon: wgsLon };
+            }
+
+            // 偏移算法常量
+            const a = 6378245.0; // 长半轴
+            const ee = 0.00669342162296594323; // 偏心率平方
+
+            let dLat = transformLat(wgsLon - 105.0, wgsLat - 35.0);
+            let dLon = transformLon(wgsLon - 105.0, wgsLat - 35.0);
+
+            const radLat = wgsLat / 180.0 * Math.PI;
+            let magic = Math.sin(radLat);
+            magic = 1 - ee * magic * magic;
+            const sqrtMagic = Math.sqrt(magic);
+
+            dLat = (dLat * 180.0) / ((a * (1 - ee)) / (magic * sqrtMagic) * Math.PI);
+            dLon = (dLon * 180.0) / (a / sqrtMagic * Math.cos(radLat) * Math.PI);
+
+            return {
+                lat: wgsLat + dLat,
+                lon: wgsLon + dLon
+            };
+        }
+
+        function transformLat(x, y) {
+            let ret = -100.0 + 2.0 * x + 3.0 * y + 0.2 * y * y + 0.1 * x * y + 0.2 * Math.sqrt(Math.abs(x));
+            ret += (20.0 * Math.sin(6.0 * x * Math.PI) + 20.0 * Math.sin(2.0 * x * Math.PI)) * 2.0 / 3.0;
+            ret += (20.0 * Math.sin(y * Math.PI) + 40.0 * Math.sin(y / 3.0 * Math.PI)) * 2.0 / 3.0;
+            ret += (160.0 * Math.sin(y / 12.0 * Math.PI) + 320 * Math.sin(y * Math.PI / 30.0)) * 2.0 / 3.0;
+            return ret;
+        }
+
+        function transformLon(x, y) {
+            let ret = 300.0 + x + 2.0 * y + 0.1 * x * x + 0.1 * x * y + 0.1 * Math.sqrt(Math.abs(x));
+            ret += (20.0 * Math.sin(6.0 * x * Math.PI) + 20.0 * Math.sin(2.0 * x * Math.PI)) * 2.0 / 3.0;
+            ret += (20.0 * Math.sin(x * Math.PI) + 40.0 * Math.sin(x / 3.0 * Math.PI)) * 2.0 / 3.0;
+            ret += (150.0 * Math.sin(x / 12.0 * Math.PI) + 300.0 * Math.sin(x / 30.0 * Math.PI)) * 2.0 / 3.0;
+            return ret;
+        }
+
+        // 转换 H3 cell 边界坐标从 WGS-84 到 GCJ-02
+        function convertCellBoundaryToGcj02(cell) {
+            if (!cell || !cell.boundary) return cell;
+            return {
+                ...cell,
+                boundary: cell.boundary.map(([lon, lat]) => {
+                    const converted = wgs84ToGcj02(lat, lon);
+                    return [converted.lon, converted.lat];
+                })
+            };
+        }
+
+        function startFogLocationUnlock() {
+            if (!navigator.geolocation) {
+                log('当前浏览器不支持定位，无法自动点亮迷雾');
+                return;
+            }
+
+            navigator.geolocation.getCurrentPosition(
+                position => {
+                    const { latitude, longitude, accuracy } = position.coords;
+                    if (accuracy && accuracy > 120) {
+                        log('定位精度不足，暂不点亮迷雾:', Math.round(accuracy), 'm');
+                        return;
+                    }
+                    log('高精度定位用于点亮迷雾:', latitude.toFixed(6), longitude.toFixed(6), '精度:', Math.round(accuracy || 0), 'm');
+                    unlockFogAtLocation(latitude, longitude);
+                },
+                error => log('获取当前位置点亮迷雾失败:', error.message),
+                { enableHighAccuracy: true, timeout: 20000, maximumAge: 15000 }
+            );
+
+            if (fogWatchId !== null) return;
+            fogWatchId = navigator.geolocation.watchPosition(
+                position => {
+                    const { latitude, longitude, accuracy } = position.coords;
+                    if (accuracy && accuracy > 120) {
+                        log('监听定位精度不足，跳过迷雾点亮:', Math.round(accuracy), 'm');
+                        return;
+                    }
+                    if (lastUnlockLocation) {
+                        const distance = getDistanceMeters(lastUnlockLocation.lat, lastUnlockLocation.lon, latitude, longitude);
+                        if (distance < 100) return;
+                    }
+                    unlockFogAtLocation(latitude, longitude);
+                },
+                error => log('监听当前位置点亮迷雾失败:', error.message),
+                { enableHighAccuracy: true, timeout: 20000, maximumAge: 15000 }
+            );
+        }
+
+        function runWhenIdle(callback, timeout = 1500) {
+            if ('requestIdleCallback' in window) {
+                window.requestIdleCallback(callback, { timeout });
+                return;
+            }
+            setTimeout(callback, Math.min(timeout, 800));
+        }
+
         async function loadConfig() {
             try {
                 log('正在从 /api/config 加载配置...');
@@ -1334,26 +1797,37 @@ let map;
                 log('  - 初始缩放: 12');
                 log('  - 地图源:', styleName);
                 
+                const initialCenter = isGcj02MapSource()
+                    ? [getMapCoordinateFromWgs84(SHANGHAI_CENTER[1], SHANGHAI_CENTER[0]).lon, getMapCoordinateFromWgs84(SHANGHAI_CENTER[1], SHANGHAI_CENTER[0]).lat]
+                    : SHANGHAI_CENTER;
+
                 map = new maplibregl.Map({
                     container: 'map',
                     style: style,
-                    center: SHANGHAI_CENTER,
+                    center: initialCenter,
                     zoom: 12,
                     maxZoom: MAP_MAX_ZOOM,
                     pitch: 0,
                     bearing: 0,
                     failIfMajorPerformanceCaveat: false,
-                    preserveDrawingBuffer: false
+                    preserveDrawingBuffer: false,
+                    refreshExpiredTiles: false,
+                    fadeDuration: 0
                 });
 
                 map.addControl(new maplibregl.NavigationControl(), 'top-right');
                 log('✓ 添加导航控件');
                 
-                map.addControl(new maplibregl.GeolocateControl({
-                    positionOptions: { enableHighAccuracy: true },
-                    trackUserLocation: true
-                }), 'top-right');
-                log('✓ 添加定位控件');
+                if (isGcj02MapSource()) {
+                    map.addControl(new SourceAwareGeolocateControl(), 'top-right');
+                    log('✓ 添加高德坐标系定位控件');
+                } else {
+                    map.addControl(new maplibregl.GeolocateControl({
+                        positionOptions: { enableHighAccuracy: true },
+                        trackUserLocation: true
+                    }), 'top-right');
+                    log('✓ 添加定位控件');
+                }
                 
                 map.addControl(new maplibregl.FullscreenControl(), 'top-right');
                 log('✓ 添加全屏控件');
@@ -1362,16 +1836,18 @@ let map;
                 log('✓ 添加比例尺控件');
 
                 map.on('load', () => {
+                    mapInitialLoadComplete = true;
                     log('✓ 地图加载完成!');
                     log('  - 当前缩放:', map.getZoom());
                     log('  - 当前中心:', map.getCenter());
                     setMapStatus('已加载', 'ok');
                     updateDebugPanel();
-                    setTimeout(() => {
-                        handleMapMoveEnd();
-                        handleWeatherMapMove();
-                        handleTopicsMapMove();
-                    }, 800);
+
+                    runWhenIdle(() => loadUnlockedFogCells(), 600);
+                    setTimeout(() => startFogLocationUnlock(), 1200);
+                    setTimeout(() => handleTopicsMapMove(), 1600);
+                    setTimeout(() => handleWeatherMapMove(), 2200);
+                    setTimeout(() => handleMapMoveEnd({ silent: true }), activeMapSource === 'maptiler' ? 2600 : 900);
                     
                     log('🔧 添加建筑点击调试功能: 点击地图上的建筑可查看其属性');
                     map.on('click', async (e) => {
@@ -1471,8 +1947,9 @@ let map;
                 map.on('error', (e) => {
                     log('✗ 地图错误:', e);
                     
-                    if (activeMapSource === 'maptiler') {
-                        log('尝试切换到 OpenStreetMap 备用地图...');
+                    if (activeMapSource === 'maptiler' && !mapInitialLoadComplete && !mapTilerFallbackTriggered) {
+                        mapTilerFallbackTriggered = true;
+                        log('MapTiler 首次加载失败，尝试切换到 OpenStreetMap 备用地图...');
                         try {
                             map.setStyle(OSM_STYLE);
                             mapTilerKey = '';
@@ -1484,9 +1961,11 @@ let map;
                             log('切换地图失败:', switchError);
                             setMapStatus('地图加载失败', 'error');
                         }
-                    } else {
+                    } else if (!mapInitialLoadComplete) {
                         setMapStatus('地图错误', 'error');
                         showError('地图加载出错: ' + (e.error ? e.error.message : '未知错误'));
+                    } else {
+                        log('地图资源加载警告，忽略非阻塞错误:', e.error ? e.error.message : '未知错误');
                     }
                 });
 
@@ -1513,6 +1992,7 @@ let map;
                     handleMapMoveEnd();
                     handleWeatherMapMove();
                     handleTopicsMapMove();
+                    renderUnlockedFogCells();
                 }, 300));
                 
                 map.on('zoom', () => {
@@ -1572,6 +2052,7 @@ let map;
                 
                 map.on('move', () => {
                     updateDebugPanel();
+                    renderUnlockedFogCells();
                 });
                 
                 map.on('idle', () => {
@@ -1602,7 +2083,7 @@ let map;
             }, 5000);
         }
 
-        function handleMapMoveEnd() {
+        function handleMapMoveEnd(options = {}) {
             if (!map) {
                 log('警告: 地图尚未初始化');
                 return;
@@ -1630,7 +2111,7 @@ let map;
                 log(`  - 中心坐标: ${center.lat.toFixed(4)}, ${center.lng.toFixed(4)}`);
                 log(`  - 查询半径: ${radius} 公里`);
                 
-                loadScenicSpots(center.lat, center.lng, radius);
+                loadScenicSpots(center.lat, center.lng, radius, options);
             }
             
             updateDebugPanel();
@@ -1855,7 +2336,7 @@ let map;
             };
         }
 
-        async function loadScenicSpots(lat, lon, radius) {
+        async function loadScenicSpots(lat, lon, radius, options = {}) {
             log('='.repeat(40));
             log('加载景点数据');
             log('='.repeat(40));
@@ -1865,7 +2346,7 @@ let map;
             log('  - 半径:', radius, '公里');
             
             currentRadius = radius;
-            showLoading();
+            if (!options.silent) showLoading();
             
             try {
                 const url = `/api/scenic_spots?lat=${lat}&lon=${lon}&radius=${radius}`;
@@ -1919,9 +2400,9 @@ let map;
                 }
             } catch (error) {
                 log('✗ 加载景点失败:', error);
-                showError('加载景点失败: ' + error.message);
+                if (!options.silent) showError('加载景点失败: ' + error.message);
             } finally {
-                hideLoading();
+                if (!options.silent) hideLoading();
                 updateDebugPanel();
             }
         }
@@ -2340,6 +2821,12 @@ let map;
                 .setLngLat([topic.lon, topic.lat])
                 .setPopup(popup)
                 .addTo(map);
+
+            marker.getElement().classList.add('topic-marker-layer');
+            popup.on('open', () => {
+                const popupElement = popup.getElement();
+                if (popupElement) popupElement.classList.add('topic-popup-layer');
+            });
 
             el.addEventListener('click', () => recordTopicClick(topic.id), { once: true });
             

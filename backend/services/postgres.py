@@ -9,7 +9,7 @@ from psycopg.rows import dict_row
 from psycopg import sql
 
 from backend.config import settings
-from backend.utils import get_h3_index
+from backend.utils import FOG_H3_RESOLUTION, H3_RESOLUTION, get_h3_cell_boundary, get_h3_disk, get_h3_index
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +33,27 @@ CREATE TABLE IF NOT EXISTS topics (
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 )
 """
+
+
+UNLOCKED_H3_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS unlocked_h3_cells (
+    user_id VARCHAR(128) NOT NULL,
+    h3_index VARCHAR(32) NOT NULL,
+    resolution INTEGER NOT NULL,
+    first_lat DOUBLE PRECISION,
+    first_lon DOUBLE PRECISION,
+    unlock_type VARCHAR(32) NOT NULL DEFAULT 'gps',
+    unlocked_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, h3_index)
+)
+"""
+
+
+UNLOCKED_H3_INDEX_SQL = [
+    "CREATE INDEX IF NOT EXISTS idx_unlocked_h3_user ON unlocked_h3_cells (user_id)",
+    "CREATE INDEX IF NOT EXISTS idx_unlocked_h3_index ON unlocked_h3_cells (h3_index)",
+]
 
 
 TOPICS_INDEX_SQL = [
@@ -62,6 +83,12 @@ $$ LANGUAGE plpgsql;
 DROP TRIGGER IF EXISTS trg_topics_updated_at ON topics;
 CREATE TRIGGER trg_topics_updated_at
 BEFORE UPDATE ON topics
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_unlocked_h3_cells_updated_at ON unlocked_h3_cells;
+CREATE TRIGGER trg_unlocked_h3_cells_updated_at
+BEFORE UPDATE ON unlocked_h3_cells
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
 """
@@ -102,13 +129,17 @@ def init_postgres_schema() -> None:
     with postgres_connection(database=database) as conn:
         with conn.cursor() as cursor:
             cursor.execute(TOPICS_TABLE_SQL)
+            cursor.execute(UNLOCKED_H3_TABLE_SQL)
             for migration_sql in SCHEMA_MIGRATION_SQL:
                 cursor.execute(migration_sql)
             for index_sql in TOPICS_INDEX_SQL:
                 cursor.execute(index_sql)
+            for index_sql in UNLOCKED_H3_INDEX_SQL:
+                cursor.execute(index_sql)
             cursor.execute(UPDATED_AT_TRIGGER_SQL)
         conn.commit()
         _backfill_missing_h3_indexes()
+        _migrate_unlocked_h3_resolution()
         logger.info("PostgreSQL 话题表已就绪: %s.topics", database)
 
 
@@ -125,12 +156,93 @@ def _backfill_missing_h3_indexes() -> None:
         conn.commit()
 
 
+def _migrate_unlocked_h3_resolution() -> None:
+    with postgres_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT user_id, first_lat, first_lon, unlock_type, unlocked_at
+                FROM unlocked_h3_cells
+                WHERE resolution <> %s AND first_lat IS NOT NULL AND first_lon IS NOT NULL
+                """,
+                (FOG_H3_RESOLUTION,),
+            )
+            rows = cursor.fetchall()
+            if not rows:
+                return
+            cursor.execute("DELETE FROM unlocked_h3_cells WHERE resolution <> %s", (FOG_H3_RESOLUTION,))
+            for row in rows:
+                h3_index = get_h3_index(row["first_lat"], row["first_lon"], FOG_H3_RESOLUTION)
+                cursor.execute(
+                    """
+                    INSERT INTO unlocked_h3_cells (user_id, h3_index, resolution, first_lat, first_lon, unlock_type, unlocked_at)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (user_id, h3_index) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
+                    """,
+                    (
+                        row["user_id"],
+                        h3_index,
+                        FOG_H3_RESOLUTION,
+                        row["first_lat"],
+                        row["first_lon"],
+                        row["unlock_type"],
+                        row["unlocked_at"],
+                    ),
+                )
+        conn.commit()
+
+
 def _normalize_topic_row(row: dict[str, Any] | None) -> dict[str, Any] | None:
     if row is None:
         return None
     topic = dict(row)
     topic["id"] = str(topic["id"])
     return topic
+
+
+def _format_unlocked_cell(row: dict[str, Any]) -> dict[str, Any]:
+    h3_index = row["h3_index"]
+    return {
+        "h3_index": h3_index,
+        "resolution": row["resolution"],
+        "unlock_type": row["unlock_type"],
+        "unlocked_at": row["unlocked_at"].isoformat() if row.get("unlocked_at") else None,
+        "boundary": get_h3_cell_boundary(h3_index),
+    }
+
+
+def unlock_h3_cells_for_location(user_id: str, lat: float, lon: float, disk_radius: int = 1) -> dict[str, Any]:
+    center_h3 = get_h3_index(lat, lon, FOG_H3_RESOLUTION)
+    h3_indexes = get_h3_disk(center_h3, disk_radius)
+    with postgres_connection() as conn:
+        with conn.cursor() as cursor:
+            for h3_index in h3_indexes:
+                unlock_type = "gps_center" if h3_index == center_h3 else "gps_adjacent"
+                cursor.execute(
+                    """
+                    INSERT INTO unlocked_h3_cells (user_id, h3_index, resolution, first_lat, first_lon, unlock_type)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (user_id, h3_index) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
+                    """,
+                    (user_id, h3_index, FOG_H3_RESOLUTION, lat, lon, unlock_type),
+                )
+        conn.commit()
+    return {"center_h3": center_h3, "unlocked_h3_indexes": h3_indexes}
+
+
+def get_unlocked_h3_cells(user_id: str) -> list[dict[str, Any]]:
+    with postgres_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT h3_index, resolution, unlock_type, unlocked_at
+                FROM unlocked_h3_cells
+                WHERE user_id = %s
+                ORDER BY unlocked_at ASC
+                """,
+                (user_id,),
+            )
+            return [_format_unlocked_cell(row) for row in cursor.fetchall()]
 
 
 class PostgresTopicStore:
