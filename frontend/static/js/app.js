@@ -40,6 +40,7 @@ let map;
         let lastUnlockLocation = null;
         let fogRenderer = null;
         let pendingFogRender = false;
+        let pendingImmediateFogRender = false;
         let lastFogRenderAt = 0;
         let mapInitialLoadComplete = false;
         let mapTilerFallbackTriggered = false;
@@ -1750,8 +1751,19 @@ let map;
 
         function scheduleFogRender(force = false) {
             if (!map) return;
+            if (force) {
+                if (pendingImmediateFogRender) return;
+                pendingImmediateFogRender = true;
+                requestAnimationFrame(() => {
+                    pendingImmediateFogRender = false;
+                    if (!fogRenderer) fogRenderer = createFogRenderer();
+                    if (fogRenderer) fogRenderer.render(unlockedFogCells);
+                    lastFogRenderAt = performance.now();
+                });
+                return;
+            }
             const now = performance.now();
-            const delay = force ? 0 : Math.max(0, FOG_UPDATE_INTERVAL - (now - lastFogRenderAt));
+            const delay = Math.max(0, FOG_UPDATE_INTERVAL - (now - lastFogRenderAt));
             if (pendingFogRender) return;
             pendingFogRender = true;
             setTimeout(() => {
@@ -1762,8 +1774,8 @@ let map;
             }, delay);
         }
 
-        function renderUnlockedFogCells() {
-            scheduleFogRender();
+        function renderUnlockedFogCells(force = false) {
+            scheduleFogRender(force);
         }
 
         async function loadUnlockedFogCells() {
@@ -2226,7 +2238,7 @@ let map;
                 
                 map.on('move', () => {
                     updateDebugPanel();
-                    renderUnlockedFogCells();
+                    renderUnlockedFogCells(true);
                 });
                 
                 map.on('idle', () => {
@@ -2925,14 +2937,69 @@ let map;
                 .replace(/'/g, '&#39;');
         }
 
+        function renderTopicReplies(topic) {
+            const replies = topic.replies || [];
+            if (!replies.length) {
+                return '<div class="topic-reply-empty">还没有回复，来抢沙发</div>';
+            }
+            const collapsed = replies.length > 3;
+            const visibleReplies = collapsed ? replies.slice(0, 3) : replies;
+            return `
+                <div id="topicReplies-${topic.id}" class="topic-replies ${collapsed ? 'collapsed' : ''}">
+                    ${visibleReplies.map(reply => `
+                        <div class="topic-reply-item">
+                            <span class="topic-reply-name">${escapeHtml(reply.user_name)}</span>
+                            <span class="topic-reply-content">${escapeHtml(reply.content)}</span>
+                        </div>
+                    `).join('')}
+                    ${collapsed ? `<button class="topic-replies-toggle" onclick="toggleTopicReplies('${topic.id}')">展开全部 ${replies.length} 条回复</button>` : ''}
+                    <template id="topicRepliesAll-${topic.id}">
+                        ${replies.map(reply => `
+                            <div class="topic-reply-item">
+                                <span class="topic-reply-name">${escapeHtml(reply.user_name)}</span>
+                                <span class="topic-reply-content">${escapeHtml(reply.content)}</span>
+                            </div>
+                        `).join('')}
+                        <button class="topic-replies-toggle" onclick="toggleTopicReplies('${topic.id}', true)">收起回复</button>
+                    </template>
+                </div>
+            `;
+        }
+
+        function buildTopicPopupContent(topic) {
+            return `
+                <div class="topic-popup moments-card">
+                    <div class="topic-header moments-header">
+                        <div class="user-avatar">${escapeHtml(topic.user_name.charAt(0).toUpperCase())}</div>
+                        <div class="user-info">
+                            <div class="user-name">${escapeHtml(topic.user_name)}</div>
+                            <div class="time-info">${formatDate(topic.created_at)} · ${Math.round(topic.distance)}m · 热度 ${Number(topic.score || 0).toFixed(2)}</div>
+                        </div>
+                    </div>
+                    <div class="topic-content moments-content">${escapeHtml(topic.content).replace(/\n/g, '<br>')}</div>
+                    ${topic.scenic_spot_name ? `<div class="topic-spot-tag">关联景点：${escapeHtml(topic.scenic_spot_name)} · ${Math.round(topic.scenic_spot_distance_m || 0)}m</div>` : ''}
+                    <div class="topic-actions-row">
+                        <button class="moment-action-btn" onclick="likeTopic('${topic.id}')">赞 ${topic.likes}</button>
+                        <span class="moment-action-count">回复 ${topic.comments || 0}</span>
+                        <span class="moment-action-count">浏览 ${topic.clicks || 0}</span>
+                    </div>
+                    <div class="topic-replies-wrap">
+                        ${renderTopicReplies(topic)}
+                    </div>
+                    <div class="topic-reply-form">
+                        <input id="topicReplyInput-${topic.id}" class="topic-reply-input" type="text" maxlength="500" placeholder="回复 ${escapeHtml(topic.user_name)}..." />
+                        <button class="topic-reply-submit" onclick="submitTopicReply('${topic.id}')">发送</button>
+                    </div>
+                </div>
+            `;
+        }
+
         function getTopicIconSvg() {
             return `
                 <svg class="topic-icon-svg" viewBox="0 0 32 32" aria-hidden="true">
-                    <path class="topic-icon-hex" d="M16 2.6 27.6 9.3v13.4L16 29.4 4.4 22.7V9.3L16 2.6Z"/>
-                    <path class="topic-icon-chat" d="M10 12.3c0-2.05 1.9-3.7 4.24-3.7h3.52c2.34 0 4.24 1.65 4.24 3.7v2.2c0 2.05-1.9 3.7-4.24 3.7h-1.14l-3.02 2.35c-.46.36-1.15 0-1.08-.57l.22-1.8C11.14 17.65 10 16.22 10 14.5v-2.2Z"/>
-                    <circle cx="13.2" cy="13.7" r="1"/>
-                    <circle cx="16" cy="13.7" r="1"/>
-                    <circle cx="18.8" cy="13.7" r="1"/>
+                    <path class="topic-icon-bubble" d="M6.2 7.5c0-2.15 1.75-3.9 3.9-3.9h11.8c2.15 0 3.9 1.75 3.9 3.9v8.35c0 2.15-1.75 3.9-3.9 3.9h-4.45l-6.2 5.15c-.78.65-1.94-.05-1.72-1.04l.9-4.11h-.33c-2.15 0-3.9-1.75-3.9-3.9V7.5Z"/>
+                    <path class="topic-icon-bolt" d="M15.25 7.6h4.9l-3.05 5.2h3.2l-6.2 8.35 1.35-5.95h-3.5l3.3-7.6Z"/>
+                    <circle class="topic-icon-dot" cx="10.9" cy="12.1" r="1.25"/>
                 </svg>
             `;
         }
@@ -2949,41 +3016,19 @@ let map;
             bubble.style.transform = `translateY(-${Math.round(topic.height || 0)}px) scale(${topic.radius || 1})`;
             el.style.setProperty('--topic-height', `${Math.round(topic.height || 0)}px`);
             
-            const displayContent = isHeatPoint
-                ? `${Math.max(1, topic.likes + topic.comments)}`
-                : (topic.content.length > 15 
-                    ? topic.content.substring(0, 15) + '...' 
-                    : topic.content);
+            const displayContent = topic.content.length > 18
+                ? `${topic.content.substring(0, 18)}...`
+                : topic.content;
 
             if (isHeatPoint) {
-                bubble.innerHTML = `<span class="topic-icon-core">${getTopicIconSvg()}</span><span class="topic-heat-count">${escapeHtml(displayContent)}</span>`;
+                bubble.innerHTML = `<span class="topic-icon-core">${getTopicIconSvg()}</span><span class="topic-text topic-text-auto">${escapeHtml(displayContent)}</span>`;
             } else {
                 bubble.innerHTML = `<span class="topic-icon-core">${getTopicIconSvg()}</span><span class="topic-text">${escapeHtml(displayContent)}</span>`;
             }
             
             el.appendChild(bubble);
             
-            const popupContent = `
-                <div class="topic-popup">
-                    <div class="topic-header">
-                        <div class="user-avatar">${escapeHtml(topic.user_name.charAt(0).toUpperCase())}</div>
-                        <div class="user-info">
-                            <div class="user-name">${escapeHtml(topic.user_name)}</div>
-                            <div class="time-info">${formatDate(topic.created_at)} · 热度 ${Number(topic.score || 0).toFixed(2)} · ${Math.round(topic.distance)}m</div>
-                        </div>
-                    </div>
-                    <div class="topic-content">${escapeHtml(topic.content).replace(/\n/g, '<br>')}</div>
-                    ${topic.scenic_spot_name ? `<div class="topic-spot-tag">关联景点：${escapeHtml(topic.scenic_spot_name)} · ${Math.round(topic.scenic_spot_distance_m || 0)}m</div>` : ''}
-                    <div class="topic-stats">
-                        <div class="stat-item">❤️ ${topic.likes}</div>
-                        <div class="stat-item">💬 ${topic.comments}</div>
-                        <div class="stat-item">👁️ ${topic.clicks || 0}</div>
-                    </div>
-                    <button class="like-btn" onclick="likeTopic('${topic.id}')">
-                        ❤️ 点赞
-                    </button>
-                </div>
-            `;
+            const popupContent = buildTopicPopupContent(topic);
             
             const popup = new maplibregl.Popup({
                 offset: 35,
@@ -3003,6 +3048,14 @@ let map;
             });
 
             el.addEventListener('click', () => recordTopicClick(topic.id), { once: true });
+
+            if (topicMarkers.length < 3) {
+                setTimeout(() => {
+                    if (map && marker.getElement().isConnected && !marker.getPopup().isOpen()) {
+                        marker.togglePopup();
+                    }
+                }, 180 + topicMarkers.length * 120);
+            }
             
             topicMarkers.push(marker);
             log('话题标记已添加:', topic.user_name, '- 距离:', Math.round(topic.distance), 'm, 透明度:', topic.opacity);
@@ -3194,6 +3247,53 @@ let map;
             } catch (error) {
                 log('点赞出错:', error);
                 showToast('点赞失败，请稍后重试');
+            }
+        }
+
+        function toggleTopicReplies(topicId, collapse = false) {
+            const container = document.getElementById(`topicReplies-${topicId}`);
+            const template = document.getElementById(`topicRepliesAll-${topicId}`);
+            if (!container || !template) return;
+            if (collapse) {
+                loadTopics();
+                return;
+            }
+            container.innerHTML = template.innerHTML;
+            container.classList.remove('collapsed');
+        }
+
+        async function submitTopicReply(topicId) {
+            const input = document.getElementById(`topicReplyInput-${topicId}`);
+            if (!input) return;
+            const content = input.value.trim();
+            if (!content) {
+                showToast('请输入回复内容');
+                return;
+            }
+            const headers = { 'Content-Type': 'application/json' };
+            if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+            const body = { content };
+            if (!authUser) {
+                const name = prompt('请输入您的昵称');
+                if (!name || !name.trim()) return;
+                body.user_name = name.trim();
+            }
+            try {
+                const response = await fetch(`/api/topics/${topicId}/replies`, {
+                    method: 'POST',
+                    headers,
+                    body: JSON.stringify(body)
+                });
+                if (!response.ok) {
+                    showToast('回复失败，请稍后重试');
+                    return;
+                }
+                input.value = '';
+                showToast('回复成功');
+                loadTopics();
+            } catch (error) {
+                log('回复话题失败:', error);
+                showToast('回复失败，请稍后重试');
             }
         }
 

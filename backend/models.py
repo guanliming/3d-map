@@ -138,6 +138,19 @@ class TopicCreate(BaseModel):
     scenic_spot_distance_m: float | None = Field(None, description="距离关联景点的米数（可选）")
 
 
+class TopicReplyCreate(BaseModel):
+    user_name: str | None = Field(None, max_length=50, description="回复昵称（未登录时必填）")
+    content: str = Field(..., min_length=1, max_length=500, description="回复内容")
+
+
+class TopicReply(BaseModel):
+    id: str
+    topic_id: str
+    user_name: str
+    content: str
+    created_at: datetime
+
+
 class Topic(BaseModel):
     id: str
     user_name: str
@@ -161,6 +174,7 @@ class Topic(BaseModel):
     freshness: str = "active"
     scenic_spot_name: str | None = None
     scenic_spot_distance_m: float | None = None
+    replies: list[TopicReply] = []
 
 
 class TopicResponse(BaseModel):

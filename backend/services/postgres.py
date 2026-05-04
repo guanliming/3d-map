@@ -35,6 +35,19 @@ CREATE TABLE IF NOT EXISTS topics (
 """
 
 
+TOPIC_REPLIES_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS topic_replies (
+    id UUID PRIMARY KEY,
+    topic_id UUID NOT NULL REFERENCES topics(id) ON DELETE CASCADE,
+    user_name VARCHAR(50) NOT NULL,
+    content TEXT NOT NULL,
+    user_id UUID,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+)
+"""
+
+
 UNLOCKED_H3_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS unlocked_h3_cells (
     user_id VARCHAR(128) NOT NULL,
@@ -82,6 +95,12 @@ TOPICS_INDEX_SQL = [
 ]
 
 
+TOPIC_REPLIES_INDEX_SQL = [
+    "CREATE INDEX IF NOT EXISTS idx_topic_replies_topic_id ON topic_replies (topic_id)",
+    "CREATE INDEX IF NOT EXISTS idx_topic_replies_created_at ON topic_replies (created_at)",
+]
+
+
 SCHEMA_MIGRATION_SQL = [
     "ALTER TABLE topics ADD COLUMN IF NOT EXISTS h3_index VARCHAR(32)",
     "ALTER TABLE topics ADD COLUMN IF NOT EXISTS clicks INTEGER NOT NULL DEFAULT 0",
@@ -108,6 +127,12 @@ EXECUTE FUNCTION set_updated_at();
 DROP TRIGGER IF EXISTS trg_unlocked_h3_cells_updated_at ON unlocked_h3_cells;
 CREATE TRIGGER trg_unlocked_h3_cells_updated_at
 BEFORE UPDATE ON unlocked_h3_cells
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
+DROP TRIGGER IF EXISTS trg_topic_replies_updated_at ON topic_replies;
+CREATE TRIGGER trg_topic_replies_updated_at
+BEFORE UPDATE ON topic_replies
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
 """
@@ -148,11 +173,14 @@ def init_postgres_schema() -> None:
     with postgres_connection(database=database) as conn:
         with conn.cursor() as cursor:
             cursor.execute(TOPICS_TABLE_SQL)
+            cursor.execute(TOPIC_REPLIES_TABLE_SQL)
             cursor.execute(UNLOCKED_H3_TABLE_SQL)
             cursor.execute(USERS_TABLE_SQL)
             for migration_sql in SCHEMA_MIGRATION_SQL:
                 cursor.execute(migration_sql)
             for index_sql in TOPICS_INDEX_SQL:
+                cursor.execute(index_sql)
+            for index_sql in TOPIC_REPLIES_INDEX_SQL:
                 cursor.execute(index_sql)
             for index_sql in UNLOCKED_H3_INDEX_SQL:
                 cursor.execute(index_sql)
@@ -380,7 +408,83 @@ class PostgresTopicStore:
             with conn.cursor() as cursor:
                 cursor.execute("SELECT * FROM topics WHERE id = %s", (topic_id,))
                 row = cursor.fetchone()
-                return _normalize_topic_row(row)
+                topic = _normalize_topic_row(row)
+                if topic:
+                    topic["replies"] = self.get_topic_replies(topic_id, limit=50)
+                return topic
+
+    def create_topic_reply(self, topic_id: str, user_name: str, content: str, user_id: str | None = None) -> dict[str, Any] | None:
+        reply_id = str(uuid.uuid4())
+        with postgres_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute("SELECT 1 FROM topics WHERE id = %s", (topic_id,))
+                if cursor.fetchone() is None:
+                    return None
+                cursor.execute(
+                    """
+                    INSERT INTO topic_replies (id, topic_id, user_name, content, user_id)
+                    VALUES (%s, %s, %s, %s, %s)
+                    RETURNING id, topic_id, user_name, content, created_at
+                    """,
+                    (reply_id, topic_id, user_name, content, user_id),
+                )
+                row = cursor.fetchone()
+                cursor.execute("UPDATE topics SET comments = comments + 1 WHERE id = %s", (topic_id,))
+            conn.commit()
+        reply = dict(row)
+        reply["id"] = str(reply["id"])
+        reply["topic_id"] = str(reply["topic_id"])
+        return reply
+
+    def get_topic_replies(self, topic_id: str, limit: int = 20) -> list[dict[str, Any]]:
+        with postgres_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT id, topic_id, user_name, content, created_at
+                    FROM topic_replies
+                    WHERE topic_id = %s
+                    ORDER BY created_at ASC
+                    LIMIT %s
+                    """,
+                    (topic_id, limit),
+                )
+                rows = cursor.fetchall()
+        replies = []
+        for row in rows:
+            reply = dict(row)
+            reply["id"] = str(reply["id"])
+            reply["topic_id"] = str(reply["topic_id"])
+            replies.append(reply)
+        return replies
+
+    def get_replies_for_topics(self, topic_ids: list[str], limit_per_topic: int = 6) -> dict[str, list[dict[str, Any]]]:
+        if not topic_ids:
+            return {}
+        result = {topic_id: [] for topic_id in topic_ids}
+        with postgres_connection() as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT id, topic_id, user_name, content, created_at
+                    FROM (
+                        SELECT id, topic_id, user_name, content, created_at,
+                               ROW_NUMBER() OVER (PARTITION BY topic_id ORDER BY created_at ASC) AS rn
+                        FROM topic_replies
+                        WHERE topic_id = ANY(%s::uuid[])
+                    ) ranked
+                    WHERE rn <= %s
+                    ORDER BY topic_id, created_at ASC
+                    """,
+                    (topic_ids, limit_per_topic),
+                )
+                rows = cursor.fetchall()
+        for row in rows:
+            reply = dict(row)
+            reply["id"] = str(reply["id"])
+            reply["topic_id"] = str(reply["topic_id"])
+            result.setdefault(reply["topic_id"], []).append(reply)
+        return result
 
     def get_all_topics(self) -> list[dict[str, Any]]:
         with postgres_connection() as conn:

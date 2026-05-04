@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from backend.auth import get_current_user
-from backend.models import FogCellsResponse, FogUnlockRequest, FogUnlockResponse, TopicCreate, TopicResponse, Topic
+from backend.models import FogCellsResponse, FogUnlockRequest, FogUnlockResponse, TopicCreate, TopicReply, TopicReplyCreate, TopicResponse, Topic
 from backend.services.postgres import get_unlocked_h3_cells, unlock_h3_cells_for_location
 from backend.services.topic_store import topic_store
 from backend.utils import aggregate_topic_beacons, select_topics_for_explore
@@ -64,6 +64,9 @@ async def get_topics(
 ):
     all_topics = topic_store.get_all_topics()
     selected = await select_topics_for_explore(all_topics, center_lat, center_lon, sw_lat, sw_lon, ne_lat, ne_lon)
+    reply_map = topic_store.get_replies_for_topics([topic["id"] for topic in selected], limit_per_topic=6)
+    for topic in selected:
+        topic["replies"] = reply_map.get(topic["id"], [])
     topics = [Topic(**topic) for topic in selected]
     return TopicResponse(total=len(topics), topics=topics, center_lat=center_lat, center_lon=center_lon)
 
@@ -78,6 +81,22 @@ async def get_topic_beacons(
     all_topics = topic_store.get_all_topics()
     beacons = aggregate_topic_beacons(all_topics, sw_lat, sw_lon, ne_lat, ne_lon)
     return {"total": len(beacons), "beacons": beacons}
+
+
+@router.post("/topics/{topic_id}/replies", response_model=TopicReply, status_code=201)
+async def reply_topic(topic_id: str, data: TopicReplyCreate, current_user: dict | None = Depends(get_current_user)):
+    if current_user is not None:
+        user_name = current_user["nickname"]
+        user_id = current_user["user_id"]
+    else:
+        if not data.user_name:
+            raise HTTPException(status_code=422, detail="未登录时请提供昵称")
+        user_name = data.user_name
+        user_id = None
+    reply = topic_store.create_topic_reply(topic_id, user_name, data.content, user_id=user_id)
+    if reply is None:
+        raise HTTPException(status_code=404, detail="话题不存在")
+    return TopicReply(**reply)
 
 
 @router.post("/topics/{topic_id}/click")

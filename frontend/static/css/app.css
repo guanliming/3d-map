@@ -525,22 +525,22 @@ html, body, #app {
         }
         
         .topic-bubble {
-            background: linear-gradient(135deg, rgba(8, 47, 73, 0.94) 0%, rgba(14, 165, 233, 0.92) 100%);
-            border: 1px solid rgba(186, 230, 253, 0.82);
-            border-radius: 18px;
-            padding: 7px 13px 7px 8px;
+            background: linear-gradient(135deg, rgba(88, 28, 135, 0.96) 0%, rgba(219, 39, 119, 0.94) 100%);
+            border: 1px solid rgba(251, 207, 232, 0.88);
+            border-radius: 16px;
+            padding: 8px 14px 8px 8px;
             color: white;
             font-size: 13px;
-            font-weight: 700;
-            box-shadow: 0 10px 30px rgba(2, 132, 199, 0.42), inset 0 1px 0 rgba(255,255,255,0.38);
-            max-width: 230px;
+            font-weight: 800;
+            box-shadow: 0 12px 32px rgba(168, 85, 247, 0.44), inset 0 1px 0 rgba(255,255,255,0.42);
+            max-width: 260px;
             overflow: hidden;
             white-space: nowrap;
             position: relative;
             display: flex;
             align-items: center;
-            gap: 8px;
-            --topic-tail-color: rgba(14, 165, 233, 0.92);
+            gap: 9px;
+            --topic-tail-color: rgba(219, 39, 119, 0.94);
         }
 
         .topic-bubble::after {
@@ -557,36 +557,34 @@ html, body, #app {
         }
 
         .topic-icon-core {
-            width: 34px;
-            height: 34px;
-            min-width: 34px;
-            border-radius: 0;
-            background: transparent;
-            color: #38bdf8;
+            width: 36px;
+            height: 36px;
+            min-width: 36px;
+            border-radius: 12px;
+            background: linear-gradient(135deg, rgba(236, 72, 153, 0.96), rgba(124, 58, 237, 0.94));
+            color: white;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.72));
+            box-shadow: 0 0 0 1px rgba(255,255,255,0.36), 0 8px 20px rgba(168, 85, 247, 0.38);
         }
 
         .topic-icon-svg {
-            width: 32px;
-            height: 32px;
+            width: 28px;
+            height: 28px;
             display: block;
         }
 
-        .topic-icon-svg .topic-icon-hex {
-            fill: rgba(15, 23, 42, 0.94);
-            stroke: #67e8f9;
-            stroke-width: 1.7;
+        .topic-icon-svg .topic-icon-bubble {
+            fill: rgba(255, 255, 255, 0.96);
         }
 
-        .topic-icon-svg .topic-icon-chat {
-            fill: #22d3ee;
+        .topic-icon-svg .topic-icon-bolt {
+            fill: #7c3aed;
         }
 
-        .topic-icon-svg circle {
-            fill: white;
+        .topic-icon-svg .topic-icon-dot {
+            fill: #ec4899;
         }
 
         .topic-text {
@@ -704,6 +702,107 @@ html, body, #app {
         
         .topic-popup .like-btn:hover {
             opacity: 0.9;
+        }
+
+        .topic-popup.moments-card {
+            width: min(360px, 78vw);
+            max-height: 430px;
+            overflow: auto;
+            padding-right: 2px;
+        }
+
+        .moments-content {
+            line-height: 1.55;
+            color: #111827;
+            margin: 8px 0 10px;
+            word-break: break-word;
+        }
+
+        .topic-actions-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 8px 0;
+            font-size: 12px;
+            color: #64748b;
+        }
+
+        .moment-action-btn {
+            border: none;
+            border-radius: 999px;
+            padding: 5px 10px;
+            color: white;
+            background: linear-gradient(135deg, #ec4899, #8b5cf6);
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .moment-action-count {
+            white-space: nowrap;
+        }
+
+        .topic-replies-wrap {
+            background: #f1f5f9;
+            border-radius: 10px;
+            padding: 8px 10px;
+            margin-top: 8px;
+            max-height: 150px;
+            overflow: auto;
+        }
+
+        .topic-reply-empty {
+            color: #94a3b8;
+            font-size: 12px;
+        }
+
+        .topic-reply-item {
+            font-size: 12px;
+            line-height: 1.55;
+            color: #334155;
+            word-break: break-word;
+        }
+
+        .topic-reply-name {
+            color: #2563eb;
+            font-weight: 700;
+            margin-right: 4px;
+        }
+
+        .topic-replies-toggle {
+            margin-top: 5px;
+            border: none;
+            background: transparent;
+            color: #6366f1;
+            font-size: 12px;
+            cursor: pointer;
+            padding: 0;
+        }
+
+        .topic-reply-form {
+            display: flex;
+            gap: 6px;
+            margin-top: 10px;
+        }
+
+        .topic-reply-input {
+            min-width: 0;
+            flex: 1;
+            border: 1px solid #cbd5e1;
+            border-radius: 999px;
+            padding: 7px 10px;
+            font-size: 12px;
+            outline: none;
+        }
+
+        .topic-reply-submit {
+            border: none;
+            border-radius: 999px;
+            padding: 7px 11px;
+            color: white;
+            background: #0ea5e9;
+            cursor: pointer;
+            font-size: 12px;
+            white-space: nowrap;
         }
         
         .create-topic-modal {
@@ -970,21 +1069,28 @@ html, body, #app {
         }
 
         .topic-bubble.heat-point {
-            min-width: 42px;
-            height: 38px;
-            padding: 0 10px 0 5px;
-            border-radius: 18px;
-            justify-content: center;
-            gap: 4px;
-            font-size: 11px;
-            box-shadow: 0 0 0 9px rgba(14, 165, 233, 0.16), 0 0 24px rgba(34, 211, 238, 0.78);
-            animation: topicPulse 1.8s infinite;
+            min-width: 150px;
+            height: auto;
+            padding: 8px 12px 8px 8px;
+            border-radius: 16px;
+            justify-content: flex-start;
+            gap: 8px;
+            font-size: 12px;
+            box-shadow: 0 0 0 8px rgba(219, 39, 119, 0.16), 0 0 26px rgba(236, 72, 153, 0.72);
+            animation: topicGlow 1.8s infinite;
         }
 
         .topic-bubble.heat-point .topic-icon-core {
             width: 30px;
             height: 30px;
             min-width: 30px;
+            border-radius: 10px;
+        }
+
+        .topic-text-auto {
+            max-width: 150px;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
 
         .topic-heat-count {
@@ -996,9 +1102,9 @@ html, body, #app {
             display: none;
         }
 
-        @keyframes topicPulse {
-            0%, 100% { transform: scale(1); }
-            50% { transform: scale(1.18); }
+        @keyframes topicGlow {
+            0%, 100% { filter: brightness(1); }
+            50% { filter: brightness(1.16); }
         }
 
         .topic-spot-tag {
