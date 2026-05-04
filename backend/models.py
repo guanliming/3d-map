@@ -102,8 +102,34 @@ class FogCellsResponse(BaseModel):
     cells: list[UnlockedH3Cell]
 
 
+class UserRegister(BaseModel):
+    nickname: str = Field(..., min_length=1, max_length=50, description="昵称")
+    real_name: str | None = Field(None, max_length=100, description="真实姓名（可选）")
+    id_card: str | None = Field(None, max_length=18, description="身份证号（可选）")
+    phone: str = Field(..., min_length=1, max_length=20, description="手机号")
+    password: str = Field(..., min_length=6, max_length=128, description="密码")
+
+
+class UserLogin(BaseModel):
+    phone: str = Field(..., min_length=1, max_length=20, description="手机号")
+    password: str = Field(..., min_length=1, max_length=128, description="密码")
+
+
+class UserResponse(BaseModel):
+    id: str
+    nickname: str
+    real_name: str | None = None
+    phone: str
+    created_at: datetime
+
+
+class TokenResponse(BaseModel):
+    token: str
+    user: UserResponse
+
+
 class TopicCreate(BaseModel):
-    user_name: str = Field(..., description="用户名", min_length=1, max_length=50)
+    user_name: str | None = Field(None, max_length=50, description="用户名（未登录时必填）")
     content: str = Field(..., description="话题内容", min_length=1, max_length=1000)
     lat: float = Field(..., description="纬度", ge=-90, le=90)
     lon: float = Field(..., description="经度", ge=-180, le=180)

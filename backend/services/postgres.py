@@ -50,6 +50,23 @@ CREATE TABLE IF NOT EXISTS unlocked_h3_cells (
 """
 
 
+USERS_TABLE_SQL = """
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY,
+    nickname VARCHAR(50) NOT NULL,
+    real_name VARCHAR(100),
+    id_card VARCHAR(18),
+    phone VARCHAR(20) NOT NULL,
+    password_hash VARCHAR(256) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+)
+"""
+
+USERS_INDEX_SQL = [
+    "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone ON users (phone)",
+]
+
 UNLOCKED_H3_INDEX_SQL = [
     "CREATE INDEX IF NOT EXISTS idx_unlocked_h3_user ON unlocked_h3_cells (user_id)",
     "CREATE INDEX IF NOT EXISTS idx_unlocked_h3_index ON unlocked_h3_cells (h3_index)",
@@ -61,6 +78,7 @@ TOPICS_INDEX_SQL = [
     "CREATE INDEX IF NOT EXISTS idx_topics_h3_index ON topics (h3_index)",
     "CREATE INDEX IF NOT EXISTS idx_topics_created_at ON topics (created_at)",
     "CREATE INDEX IF NOT EXISTS idx_topics_scenic_spot_name ON topics (scenic_spot_name)",
+    "CREATE INDEX IF NOT EXISTS idx_topics_user_id ON topics (user_id)",
 ]
 
 
@@ -68,6 +86,7 @@ SCHEMA_MIGRATION_SQL = [
     "ALTER TABLE topics ADD COLUMN IF NOT EXISTS h3_index VARCHAR(32)",
     "ALTER TABLE topics ADD COLUMN IF NOT EXISTS clicks INTEGER NOT NULL DEFAULT 0",
     "ALTER TABLE topics ADD COLUMN IF NOT EXISTS weight DOUBLE PRECISION NOT NULL DEFAULT 1.0",
+    "ALTER TABLE topics ADD COLUMN IF NOT EXISTS user_id UUID",
 ]
 
 
@@ -130,11 +149,14 @@ def init_postgres_schema() -> None:
         with conn.cursor() as cursor:
             cursor.execute(TOPICS_TABLE_SQL)
             cursor.execute(UNLOCKED_H3_TABLE_SQL)
+            cursor.execute(USERS_TABLE_SQL)
             for migration_sql in SCHEMA_MIGRATION_SQL:
                 cursor.execute(migration_sql)
             for index_sql in TOPICS_INDEX_SQL:
                 cursor.execute(index_sql)
             for index_sql in UNLOCKED_H3_INDEX_SQL:
+                cursor.execute(index_sql)
+            for index_sql in USERS_INDEX_SQL:
                 cursor.execute(index_sql)
             cursor.execute(UPDATED_AT_TRIGGER_SQL)
         conn.commit()
@@ -245,6 +267,43 @@ def get_unlocked_h3_cells(user_id: str) -> list[dict[str, Any]]:
             return [_format_unlocked_cell(row) for row in cursor.fetchall()]
 
 
+def create_user(nickname: str, real_name: str | None, id_card: str | None,
+                phone: str, password_hash: str) -> dict[str, Any]:
+    user_id = str(uuid.uuid4())
+    with postgres_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO users (id, nickname, real_name, id_card, phone, password_hash)
+                VALUES (%s, %s, %s, %s, %s, %s)
+                RETURNING id, nickname, real_name, phone, created_at
+                """,
+                (user_id, nickname, real_name, id_card, phone, password_hash),
+            )
+            row = cursor.fetchone()
+        conn.commit()
+    return dict(row)
+
+
+def get_user_by_phone(phone: str) -> dict[str, Any] | None:
+    with postgres_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT * FROM users WHERE phone = %s", (phone,))
+            row = cursor.fetchone()
+    return dict(row) if row else None
+
+
+def get_user_by_id(user_id: str) -> dict[str, Any] | None:
+    with postgres_connection() as conn:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                "SELECT id, nickname, real_name, phone, created_at FROM users WHERE id = %s",
+                (user_id,),
+            )
+            row = cursor.fetchone()
+    return dict(row) if row else None
+
+
 class PostgresTopicStore:
     def create_topic(
         self,
@@ -255,6 +314,7 @@ class PostgresTopicStore:
         image: str | None = None,
         scenic_spot_name: str | None = None,
         scenic_spot_distance_m: float | None = None,
+        user_id: str | None = None,
     ) -> str:
         topic_id = str(uuid.uuid4())
         with postgres_connection() as conn:
@@ -263,8 +323,8 @@ class PostgresTopicStore:
                     """
                     INSERT INTO topics (
                         id, user_name, content, lat, lon, image,
-                        scenic_spot_name, scenic_spot_distance_m, h3_index, clicks, weight, likes, comments, created_at
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 0, 1.0, 0, 0, %s)
+                        scenic_spot_name, scenic_spot_distance_m, h3_index, clicks, weight, likes, comments, created_at, user_id
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, 0, 1.0, 0, 0, %s, %s)
                     """,
                     (
                         topic_id,
@@ -277,6 +337,7 @@ class PostgresTopicStore:
                         scenic_spot_distance_m,
                         get_h3_index(lat, lon),
                         datetime.now(),
+                        user_id,
                     ),
                 )
             conn.commit()

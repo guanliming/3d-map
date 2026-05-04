@@ -44,6 +44,12 @@ let map;
         let mapInitialLoadComplete = false;
         let mapTilerFallbackTriggered = false;
 
+        const AUTH_TOKEN_KEY = 'map3d_auth_token';
+        const AUTH_USER_KEY = 'map3d_auth_user';
+        let authToken = null;
+        let authUser = null;
+        let authMode = 'login';
+
         const FOG_MASK_SIZE = 512;
         const FOG_UPDATE_INTERVAL = 200;
 
@@ -1325,6 +1331,9 @@ let map;
         }
 
         function getFogUserId() {
+            if (authUser && authUser.id) {
+                return authUser.id;
+            }
             const storageKey = 'map3d_fog_user_id';
             let userId = localStorage.getItem(storageKey);
             if (!userId) {
@@ -1332,6 +1341,163 @@ let map;
                 localStorage.setItem(storageKey, userId);
             }
             return userId;
+        }
+
+        function initAuth() {
+            const stored = localStorage.getItem(AUTH_TOKEN_KEY);
+            const userStr = localStorage.getItem(AUTH_USER_KEY);
+            if (stored && userStr) {
+                try {
+                    authToken = stored;
+                    authUser = JSON.parse(userStr);
+                    updateUserIndicator();
+                    fetch('/api/auth/me', {
+                        headers: { 'Authorization': `Bearer ${authToken}` }
+                    }).then(res => {
+                        if (!res.ok) logout();
+                    });
+                } catch (e) {
+                    logout();
+                }
+            }
+        }
+
+        function updateUserIndicator() {
+            const textEl = document.getElementById('userIndicatorText');
+            if (textEl) {
+                textEl.textContent = authUser ? authUser.nickname : '登录';
+            }
+        }
+
+        function toggleAuthModal() {
+            if (authUser) {
+                if (confirm(`当前登录: ${authUser.nickname}\n确定要退出登录吗？`)) {
+                    logout();
+                }
+                return;
+            }
+            openAuthModal('login');
+        }
+
+        function openAuthModal(mode) {
+            authMode = mode;
+            const modal = document.getElementById('authModal');
+            const title = document.getElementById('authModalTitle');
+            const submitBtn = document.getElementById('authSubmitBtn');
+            const registerFields = document.getElementById('authRegisterFields');
+            const switchText = document.getElementById('authSwitchText');
+            const switchLink = document.getElementById('authSwitchLink');
+            const errorEl = document.getElementById('authError');
+
+            errorEl.style.display = 'none';
+            errorEl.textContent = '';
+
+            if (mode === 'login') {
+                title.textContent = '登录';
+                submitBtn.textContent = '登录';
+                registerFields.style.display = 'none';
+                switchText.textContent = '没有账号？';
+                switchLink.textContent = '立即注册';
+            } else {
+                title.textContent = '注册';
+                submitBtn.textContent = '注册';
+                registerFields.style.display = 'block';
+                switchText.textContent = '已有账号？';
+                switchLink.textContent = '去登录';
+            }
+
+            document.getElementById('authPhone').value = '';
+            document.getElementById('authPassword').value = '';
+            if (mode === 'register') {
+                document.getElementById('authNickname').value = '';
+                document.getElementById('authRealName').value = '';
+                document.getElementById('authIdCard').value = '';
+            }
+
+            modal.classList.add('show');
+        }
+
+        function closeAuthModal() {
+            document.getElementById('authModal').classList.remove('show');
+        }
+
+        function toggleAuthMode() {
+            openAuthModal(authMode === 'login' ? 'register' : 'login');
+        }
+
+        async function submitAuth() {
+            const phone = document.getElementById('authPhone').value.trim();
+            const password = document.getElementById('authPassword').value.trim();
+            const submitBtn = document.getElementById('authSubmitBtn');
+
+            if (!phone) { showAuthError('请输入手机号'); return; }
+            if (!password) { showAuthError('请输入密码'); return; }
+
+            let body;
+            if (authMode === 'register') {
+                const nickname = document.getElementById('authNickname').value.trim();
+                const realName = document.getElementById('authRealName').value.trim() || null;
+                const idCard = document.getElementById('authIdCard').value.trim() || null;
+                if (!nickname) { showAuthError('请输入昵称'); return; }
+                if (password.length < 6) { showAuthError('密码至少6位'); return; }
+                body = {
+                    nickname: nickname,
+                    real_name: realName,
+                    id_card: idCard,
+                    phone: phone,
+                    password: password
+                };
+            } else {
+                body = { phone: phone, password: password };
+            }
+
+            const endpoint = authMode === 'register' ? '/api/auth/register' : '/api/auth/login';
+            submitBtn.disabled = true;
+            submitBtn.textContent = authMode === 'register' ? '注册中...' : '登录中...';
+
+            try {
+                const response = await fetch(endpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+
+                if (!response.ok) {
+                    const err = await response.json().catch(() => ({}));
+                    showAuthError(err.detail || '操作失败，请重试');
+                    submitBtn.disabled = false;
+                    submitBtn.textContent = authMode === 'login' ? '登录' : '注册';
+                    return;
+                }
+
+                const data = await response.json();
+                authToken = data.token;
+                authUser = data.user;
+                localStorage.setItem(AUTH_TOKEN_KEY, authToken);
+                localStorage.setItem(AUTH_USER_KEY, JSON.stringify(authUser));
+                updateUserIndicator();
+                closeAuthModal();
+
+                showToast(authMode === 'register' ? '注册成功！' : '登录成功！');
+            } catch (error) {
+                showAuthError('网络错误，请稍后重试');
+                submitBtn.disabled = false;
+                submitBtn.textContent = authMode === 'login' ? '登录' : '注册';
+            }
+        }
+
+        function showAuthError(message) {
+            const errorEl = document.getElementById('authError');
+            errorEl.textContent = message;
+            errorEl.style.display = 'block';
+        }
+
+        function logout() {
+            authToken = null;
+            authUser = null;
+            localStorage.removeItem(AUTH_TOKEN_KEY);
+            localStorage.removeItem(AUTH_USER_KEY);
+            updateUserIndicator();
         }
 
         function createShader(gl, type, source) {
@@ -1603,7 +1769,11 @@ let map;
         async function loadUnlockedFogCells() {
             if (!fogUserId) fogUserId = getFogUserId();
             try {
-                const response = await fetch(`/api/fog/unlocked?user_id=${encodeURIComponent(fogUserId)}`);
+                const headers = {};
+                if (authToken) {
+                    headers['Authorization'] = `Bearer ${authToken}`;
+                }
+                const response = await fetch(`/api/fog/unlocked?user_id=${encodeURIComponent(fogUserId)}`, { headers });
                 if (!response.ok) return;
                 const data = await response.json();
                 unlockedFogCells = data.cells || [];
@@ -1617,9 +1787,13 @@ let map;
         async function unlockFogAtLocation(lat, lon) {
             if (!fogUserId) fogUserId = getFogUserId();
             try {
+                const headers = { 'Content-Type': 'application/json' };
+                if (authToken) {
+                    headers['Authorization'] = `Bearer ${authToken}`;
+                }
                 const response = await fetch('/api/fog/unlock', {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: headers,
                     body: JSON.stringify({ user_id: fogUserId, lat, lon })
                 });
                 if (!response.ok) return;
@@ -3025,16 +3199,24 @@ let map;
 
         function openCreateTopicModal() {
             if (!map) return;
-            
+
             const center = map.getCenter();
             const coordsEl = document.getElementById('topicLocationCoords');
             coordsEl.textContent = `${center.lat.toFixed(4)}, ${center.lng.toFixed(4)}`;
-            
+
+            const userNameGroup = document.getElementById('topicUserNameGroup');
+            const userNameInput = document.getElementById('topicUserName');
+            if (authUser) {
+                userNameGroup.style.display = 'none';
+                userNameInput.value = authUser.nickname;
+            } else {
+                userNameGroup.style.display = 'block';
+                userNameInput.value = '';
+            }
+
+            document.getElementById('topicContent').value = '';
             const modal = document.getElementById('createTopicModal');
             modal.classList.add('show');
-            
-            document.getElementById('topicUserName').value = '';
-            document.getElementById('topicContent').value = '';
         }
 
         function closeCreateTopicModal() {
@@ -3043,45 +3225,54 @@ let map;
         }
 
         async function submitTopic() {
-            const userName = document.getElementById('topicUserName').value.trim();
+            const userNameInput = document.getElementById('topicUserName');
             const content = document.getElementById('topicContent').value.trim();
             const submitBtn = document.getElementById('submitTopicBtn');
-            
-            if (!userName) {
-                showToast('请输入您的昵称');
-                return;
+
+            if (!authUser) {
+                if (!userNameInput.value.trim()) {
+                    showToast('请输入您的昵称');
+                    return;
+                }
             }
-            
+
             if (!content) {
                 showToast('请输入话题内容');
                 return;
             }
-            
+
             if (!map) {
                 showToast('地图未初始化');
                 return;
             }
-            
+
             const center = map.getCenter();
             const linkedSpot = findNearestSpot(center.lat, center.lng, 500);
-            
+
             submitBtn.disabled = true;
             submitBtn.textContent = '发布中...';
-            
+
             try {
+                const headers = { 'Content-Type': 'application/json' };
+                if (authToken) {
+                    headers['Authorization'] = `Bearer ${authToken}`;
+                }
+
+                const body = {
+                    content: content,
+                    lat: center.lat,
+                    lon: center.lng,
+                    scenic_spot_name: linkedSpot ? linkedSpot.spot.name : null,
+                    scenic_spot_distance_m: linkedSpot ? linkedSpot.distance : null
+                };
+                if (!authUser) {
+                    body.user_name = userNameInput.value.trim();
+                }
+
                 const response = await fetch('/api/topics', {
                     method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify({
-                        user_name: userName,
-                        content: content,
-                        lat: center.lat,
-                        lon: center.lng,
-                        scenic_spot_name: linkedSpot ? linkedSpot.spot.name : null,
-                        scenic_spot_distance_m: linkedSpot ? linkedSpot.distance : null
-                    })
+                    headers: headers,
+                    body: JSON.stringify(body)
                 });
                 
                 submitBtn.disabled = false;
@@ -3132,12 +3323,19 @@ let map;
         window.closeCreateTopicModal = closeCreateTopicModal;
         window.submitTopic = submitTopic;
         window.likeTopic = likeTopic;
+        window.toggleAuthModal = toggleAuthModal;
+        window.closeAuthModal = closeAuthModal;
+        window.toggleAuthMode = toggleAuthMode;
+        window.submitAuth = submitAuth;
 
         log('页面加载完成，开始初始化地图...');
-        
+
         if (debugMode) {
             document.getElementById('debugPanel').style.display = 'block';
             document.getElementById('toggleDebugBtn').textContent = '🔧 隐藏调试';
         }
-        
+
+        initAuth();
+        log('认证状态已初始化:', authUser ? `已登录 (${authUser.nickname})` : '未登录');
+
         initMap();

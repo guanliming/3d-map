@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git *)",
+      "Bash(pip install *)",
+      "Bash(python -c \"from backend.auth import hash_password, verify_password, create_token, decode_token; print\\('Auth module OK'\\); print\\('Hash:', hash_password\\('test'\\)[:20]\\); token = create_token\\('test-id', 'test-nick'\\); print\\('Token:', token[:50]\\); payload = decode_token\\(token\\); print\\('Decoded:', payload\\)\")",
+      "Bash(python -c \"from backend.auth import hash_password, verify_password, create_token, decode_token; print\\('Auth module OK'\\); h = hash_password\\('test123456'\\); print\\('Hash:', h[:30]\\); print\\('Verify:', verify_password\\('test123456', h\\)\\); t = create_token\\('test-id', 'test-nick'\\); print\\('Token:', t[:50]\\); p = decode_token\\(t\\); print\\('Decoded:', p\\)\")"
+    ]
+  }
+}

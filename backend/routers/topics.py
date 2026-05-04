@@ -1,5 +1,6 @@
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from backend.auth import get_current_user
 from backend.models import FogCellsResponse, FogUnlockRequest, FogUnlockResponse, TopicCreate, TopicResponse, Topic
 from backend.services.postgres import get_unlocked_h3_cells, unlock_h3_cells_for_location
 from backend.services.topic_store import topic_store
@@ -9,28 +10,45 @@ router = APIRouter(prefix="/api", tags=["topics"])
 
 
 @router.get("/fog/unlocked", response_model=FogCellsResponse)
-async def get_unlocked_fog_cells(user_id: str = Query(..., description="匿名用户ID")):
-    cells = get_unlocked_h3_cells(user_id)
+async def get_unlocked_fog_cells(
+    user_id: str = Query(default="", description="匿名用户ID（未登录时使用）"),
+    current_user: dict | None = Depends(get_current_user),
+):
+    effective_user_id = current_user["user_id"] if current_user else user_id
+    if not effective_user_id:
+        return FogCellsResponse(total=0, cells=[])
+    cells = get_unlocked_h3_cells(effective_user_id)
     return FogCellsResponse(total=len(cells), cells=cells)
 
 
 @router.post("/fog/unlock", response_model=FogUnlockResponse)
-async def unlock_fog_cells(data: FogUnlockRequest):
-    result = unlock_h3_cells_for_location(data.user_id, data.lat, data.lon, disk_radius=1)
-    cells = get_unlocked_h3_cells(data.user_id)
+async def unlock_fog_cells(data: FogUnlockRequest, current_user: dict | None = Depends(get_current_user)):
+    effective_user_id = current_user["user_id"] if current_user else data.user_id
+    result = unlock_h3_cells_for_location(effective_user_id, data.lat, data.lon, disk_radius=1)
+    cells = get_unlocked_h3_cells(effective_user_id)
     return FogUnlockResponse(success=True, cells=cells, **result)
 
 
 @router.post("/topics", status_code=201)
-async def create_topic(data: TopicCreate):
+async def create_topic(data: TopicCreate, current_user: dict | None = Depends(get_current_user)):
+    if current_user is not None:
+        user_name = current_user["nickname"]
+        user_id = current_user["user_id"]
+    else:
+        if not data.user_name:
+            raise HTTPException(status_code=422, detail="未登录时请提供昵称")
+        user_name = data.user_name
+        user_id = None
+
     topic_id = topic_store.create_topic(
-        data.user_name,
-        data.content,
-        data.lat,
-        data.lon,
-        data.image,
-        data.scenic_spot_name,
-        data.scenic_spot_distance_m,
+        user_name=user_name,
+        content=data.content,
+        lat=data.lat,
+        lon=data.lon,
+        image=data.image,
+        scenic_spot_name=data.scenic_spot_name,
+        scenic_spot_distance_m=data.scenic_spot_distance_m,
+        user_id=user_id,
     )
     return {"success": True, "topic_id": topic_id, "message": "话题发布成功"}
 

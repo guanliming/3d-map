@@ -39,6 +39,8 @@ class Settings(BaseModel):
     postgres_user: str = os.getenv("POSTGRES_USER", "postgres").strip()
     postgres_password: str = os.getenv("POSTGRES_PASSWORD", "postgres")
     postgres_database: str = os.getenv("POSTGRES_DATABASE", "map3d").strip()
+    jwt_secret: str = os.getenv("JWT_SECRET", "change-me-in-production").strip()
+    jwt_algorithm: str = "HS256"
     cors_origins: list[str] = ["*"]
     env_path: str | None = str(ENV_PATH) if ENV_PATH else None
 

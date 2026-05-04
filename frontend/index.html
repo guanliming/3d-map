@@ -6,7 +6,7 @@
     <title>3D 地图 - 景点探索</title>
     <link href="/static/vendor/maplibre-gl/maplibre-gl.css" rel="stylesheet" />
     <script src="/static/vendor/maplibre-gl/maplibre-gl.js"></script>
-    <link rel="stylesheet" href="/static/css/app.css?v=maptiler-fast-12" />
+    <link rel="stylesheet" href="/static/css/app.css?v=maptiler-fast-13" />
 </head>
 <body>
     <div id="app">
@@ -147,6 +147,11 @@
             <div id="panorama" class="panorama-container"></div>
         </div>
         
+        <div id="userIndicator" class="user-indicator" onclick="toggleAuthModal()">
+            <span class="user-indicator-icon">👤</span>
+            <span id="userIndicatorText" class="user-indicator-text">登录</span>
+        </div>
+
         <div class="layer-panel">
             <div class="layer-title">图层</div>
             <label class="layer-toggle">
@@ -167,11 +172,53 @@
             放大地图（缩放级别 > 15）以查看周围话题
         </div>
         
+        <div id="authModal" class="auth-modal">
+            <div class="auth-content">
+                <h2 id="authModalTitle">登录</h2>
+
+                <div class="form-group">
+                    <label for="authPhone">手机号</label>
+                    <input type="text" id="authPhone" placeholder="请输入手机号" maxlength="20" />
+                </div>
+                <div class="form-group">
+                    <label for="authPassword">密码</label>
+                    <input type="password" id="authPassword" placeholder="请输入密码" maxlength="128" />
+                </div>
+
+                <div id="authRegisterFields" style="display:none;">
+                    <div class="form-group">
+                        <label for="authNickname">昵称 <span style="color:#ef4444;">*</span></label>
+                        <input type="text" id="authNickname" placeholder="请输入昵称" maxlength="50" />
+                    </div>
+                    <div class="form-group">
+                        <label for="authRealName">真实姓名（选填）</label>
+                        <input type="text" id="authRealName" placeholder="请输入真实姓名" maxlength="100" />
+                    </div>
+                    <div class="form-group">
+                        <label for="authIdCard">身份证号（选填）</label>
+                        <input type="text" id="authIdCard" placeholder="请输入身份证号" maxlength="18" />
+                    </div>
+                </div>
+
+                <div id="authError" class="auth-error" style="display:none;"></div>
+
+                <div class="btn-group">
+                    <button class="btn btn-secondary" onclick="closeAuthModal()">取消</button>
+                    <button id="authSubmitBtn" class="btn btn-primary" onclick="submitAuth()">登录</button>
+                </div>
+
+                <div class="auth-switch">
+                    <span id="authSwitchText">没有账号？</span>
+                    <a href="javascript:void(0)" id="authSwitchLink" onclick="toggleAuthMode()">立即注册</a>
+                </div>
+            </div>
+        </div>
+
         <div id="createTopicModal" class="create-topic-modal">
             <div class="create-topic-content">
                 <h2>发布新话题</h2>
-                
-                <div class="form-group">
+
+                <div id="topicUserNameGroup" class="form-group">
                     <label for="topicUserName">您的昵称</label>
                     <input type="text" id="topicUserName" placeholder="请输入您的昵称" maxlength="50" />
                 </div>
@@ -198,6 +245,6 @@
     </div>
 
     <script src="https://unpkg.com/h3-js@4.1.0/dist/h3-js.umd.js"></script>
-    <script src="/static/js/app.js?v=maptiler-fast-12"></script>
+    <script src="/static/js/app.js?v=maptiler-fast-13"></script>
 </body>
 </html>
