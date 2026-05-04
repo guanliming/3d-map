@@ -140,7 +140,7 @@ class TopicCreate(BaseModel):
 
 class TopicReplyCreate(BaseModel):
     user_name: str | None = Field(None, max_length=50, description="回复昵称（未登录时必填）")
-    content: str = Field(..., min_length=1, max_length=500, description="回复内容")
+    content: str = Field(..., min_length=1, max_length=300, description="回复内容")
 
 
 class TopicReply(BaseModel):

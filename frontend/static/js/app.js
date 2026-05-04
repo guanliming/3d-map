@@ -1877,26 +1877,102 @@ let map;
             };
         }
 
-        function startFogLocationUnlock() {
-            if (!navigator.geolocation) {
-                log('当前浏览器不支持定位，无法自动点亮迷雾');
+        function getLastUnlockedFogCenter() {
+            if (!unlockedFogCells.length) return null;
+            const sorted = [...unlockedFogCells].sort((a, b) => {
+                const ta = a.unlocked_at ? new Date(a.unlocked_at).getTime() : 0;
+                const tb = b.unlocked_at ? new Date(b.unlocked_at).getTime() : 0;
+                return tb - ta;
+            });
+            const lastCell = sorted[0];
+            if (!lastCell.boundary || !lastCell.boundary.length) return null;
+            let sumLat = 0, sumLon = 0;
+            for (const [lon, lat] of lastCell.boundary) {
+                sumLat += lat;
+                sumLon += lon;
+            }
+            return { lat: sumLat / lastCell.boundary.length, lon: sumLon / lastCell.boundary.length };
+        }
+
+        async function initializeMapPosition() {
+            // Step 1: Try GPS position
+            const gpsPos = await tryGetCurrentPosition();
+            if (gpsPos) {
+                log('GPS定位成功，设置地图中心并点亮迷雾:', gpsPos.lat.toFixed(6), gpsPos.lon.toFixed(6));
+                flyToPosition(gpsPos.lat, gpsPos.lon);
+                unlockFogAtLocation(gpsPos.lat, gpsPos.lon);
+                startFogWatch();
+                loadUnlockedFogCells();
                 return;
             }
 
-            navigator.geolocation.getCurrentPosition(
-                position => {
-                    const { latitude, longitude, accuracy } = position.coords;
-                    if (accuracy && accuracy > 120) {
-                        log('定位精度不足，暂不点亮迷雾:', Math.round(accuracy), 'm');
-                        return;
-                    }
-                    log('高精度定位用于点亮迷雾:', latitude.toFixed(6), longitude.toFixed(6), '精度:', Math.round(accuracy || 0), 'm');
-                    unlockFogAtLocation(latitude, longitude);
-                },
-                error => log('获取当前位置点亮迷雾失败:', error.message),
-                { enableHighAccuracy: true, timeout: 20000, maximumAge: 15000 }
-            );
+            // Step 2: Load fog cells, fall back to last unlocked position
+            log('GPS定位失败，尝试从历史迷雾数据恢复位置');
+            if (!fogUserId) fogUserId = getFogUserId();
+            try {
+                const headers = {};
+                if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
+                const response = await fetch(`/api/fog/unlocked?user_id=${encodeURIComponent(fogUserId)}`, { headers });
+                if (response.ok) {
+                    const data = await response.json();
+                    unlockedFogCells = data.cells || [];
+                    renderUnlockedFogCells();
+                    log('已加载历史点亮迷雾格子:', unlockedFogCells.length);
+                }
+            } catch (error) {
+                log('加载历史迷雾失败:', error);
+            }
 
+            const lastCenter = getLastUnlockedFogCenter();
+            if (lastCenter) {
+                log('定位到最后一次点亮区域:', lastCenter.lat.toFixed(6), lastCenter.lon.toFixed(6));
+                flyToPosition(lastCenter.lat, lastCenter.lon);
+            } else {
+                log('没有历史迷雾数据，保持默认位置');
+            }
+
+            startFogWatch();
+        }
+
+        function flyToPosition(lat, lon) {
+            if (!map) return;
+            let targetLat = lat, targetLon = lon;
+            if (isGcj02MapSource()) {
+                const gcj = wgs84ToGcj02(lat, lon);
+                targetLat = gcj.lat;
+                targetLon = gcj.lon;
+            }
+            map.flyTo({ center: [targetLon, targetLat], zoom: 14, duration: 1200 });
+        }
+
+        function tryGetCurrentPosition() {
+            return new Promise(resolve => {
+                if (!navigator.geolocation) {
+                    log('浏览器不支持定位');
+                    resolve(null);
+                    return;
+                }
+                navigator.geolocation.getCurrentPosition(
+                    position => {
+                        const { latitude, longitude, accuracy } = position.coords;
+                        if (accuracy && accuracy > 200) {
+                            log('定位精度不足:', Math.round(accuracy), 'm');
+                            resolve(null);
+                            return;
+                        }
+                        resolve({ lat: latitude, lon: longitude });
+                    },
+                    error => {
+                        log('获取GPS位置失败:', error.message);
+                        resolve(null);
+                    },
+                    { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 }
+                );
+            });
+        }
+
+        function startFogWatch() {
+            if (!navigator.geolocation) return;
             if (fogWatchId !== null) return;
             fogWatchId = navigator.geolocation.watchPosition(
                 position => {
@@ -2029,8 +2105,8 @@ let map;
                     setMapStatus('已加载', 'ok');
                     updateDebugPanel();
 
-                    runWhenIdle(() => loadUnlockedFogCells(), 600);
-                    setTimeout(() => startFogLocationUnlock(), 1200);
+                    initializeMapPosition();
+
                     setTimeout(() => handleTopicsMapMove(), 1600);
                     setTimeout(() => handleWeatherMapMove(), 2200);
                     setTimeout(() => handleMapMoveEnd({ silent: true }), activeMapSource === 'maptiler' ? 2600 : 900);
@@ -2987,7 +3063,7 @@ let map;
                         ${renderTopicReplies(topic)}
                     </div>
                     <div class="topic-reply-form">
-                        <input id="topicReplyInput-${topic.id}" class="topic-reply-input" type="text" maxlength="500" placeholder="回复 ${escapeHtml(topic.user_name)}..." />
+                        <input id="topicReplyInput-${topic.id}" class="topic-reply-input" type="text" maxlength="300" placeholder="回复 ${escapeHtml(topic.user_name)}..." />
                         <button class="topic-reply-submit" onclick="submitTopicReply('${topic.id}')">发送</button>
                     </div>
                 </div>
