@@ -93,7 +93,7 @@ async def reply_topic(topic_id: str, data: TopicReplyCreate, current_user: dict 
             raise HTTPException(status_code=422, detail="未登录时请提供昵称")
         user_name = data.user_name
         user_id = None
-    reply = topic_store.create_topic_reply(topic_id, user_name, data.content, user_id=user_id)
+    reply = topic_store.create_topic_reply(topic_id, user_name, data.content, user_id=user_id, image_url=data.image_url)
     if reply is None:
         raise HTTPException(status_code=404, detail="话题不存在")
     return TopicReply(**reply)

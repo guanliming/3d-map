@@ -11,7 +11,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
 from backend.config import FRONTEND_DIR, STATIC_DIR, settings
-from backend.routers import config, scenic_spots, topics, weather, auth
+from backend.routers import config, scenic_spots, topics, weather, auth, upload
 from backend.services.postgres import init_postgres_schema
 from backend.services.topic_store import topic_store
 from backend.services.topics import init_mock_topics
@@ -41,6 +41,7 @@ app.include_router(scenic_spots.router)
 app.include_router(weather.router)
 app.include_router(topics.router)
 app.include_router(auth.router)
+app.include_router(upload.router)
 
 
 @app.get("/", response_class=HTMLResponse)

@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS topic_replies (
     user_name VARCHAR(50) NOT NULL,
     content TEXT NOT NULL,
     user_id UUID,
+    image_url VARCHAR(500),
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 )
@@ -413,7 +414,7 @@ class PostgresTopicStore:
                     topic["replies"] = self.get_topic_replies(topic_id, limit=50)
                 return topic
 
-    def create_topic_reply(self, topic_id: str, user_name: str, content: str, user_id: str | None = None) -> dict[str, Any] | None:
+    def create_topic_reply(self, topic_id: str, user_name: str, content: str, user_id: str | None = None, image_url: str | None = None) -> dict[str, Any] | None:
         reply_id = str(uuid.uuid4())
         with postgres_connection() as conn:
             with conn.cursor() as cursor:
@@ -422,11 +423,11 @@ class PostgresTopicStore:
                     return None
                 cursor.execute(
                     """
-                    INSERT INTO topic_replies (id, topic_id, user_name, content, user_id)
-                    VALUES (%s, %s, %s, %s, %s)
-                    RETURNING id, topic_id, user_name, content, created_at
+                    INSERT INTO topic_replies (id, topic_id, user_name, content, user_id, image_url)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    RETURNING id, topic_id, user_name, content, image_url, created_at
                     """,
-                    (reply_id, topic_id, user_name, content, user_id),
+                    (reply_id, topic_id, user_name, content, user_id, image_url),
                 )
                 row = cursor.fetchone()
                 cursor.execute("UPDATE topics SET comments = comments + 1 WHERE id = %s", (topic_id,))
@@ -441,7 +442,7 @@ class PostgresTopicStore:
             with conn.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT id, topic_id, user_name, content, created_at
+                    SELECT id, topic_id, user_name, content, image_url, created_at
                     FROM topic_replies
                     WHERE topic_id = %s
                     ORDER BY created_at ASC
@@ -450,25 +451,25 @@ class PostgresTopicStore:
                     (topic_id, limit),
                 )
                 rows = cursor.fetchall()
-        replies = []
-        for row in rows:
-            reply = dict(row)
-            reply["id"] = str(reply["id"])
-            reply["topic_id"] = str(reply["topic_id"])
-            replies.append(reply)
-        return replies
+            replies = []
+            for row in rows:
+                reply = dict(row)
+                reply["id"] = str(reply["id"])
+                reply["topic_id"] = str(reply["topic_id"])
+                replies.append(reply)
+            return replies
 
     def get_replies_for_topics(self, topic_ids: list[str], limit_per_topic: int = 6) -> dict[str, list[dict[str, Any]]]:
         if not topic_ids:
             return {}
-        result = {topic_id: [] for topic_id in topic_ids}
+        result: dict[str, list[dict[str, Any]]] = {}
         with postgres_connection() as conn:
             with conn.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT id, topic_id, user_name, content, created_at
+                    SELECT id, topic_id, user_name, content, image_url, created_at
                     FROM (
-                        SELECT id, topic_id, user_name, content, created_at,
+                        SELECT id, topic_id, user_name, content, image_url, created_at,
                                ROW_NUMBER() OVER (PARTITION BY topic_id ORDER BY created_at ASC) AS rn
                         FROM topic_replies
                         WHERE topic_id = ANY(%s::uuid[])
@@ -479,11 +480,11 @@ class PostgresTopicStore:
                     (topic_ids, limit_per_topic),
                 )
                 rows = cursor.fetchall()
-        for row in rows:
-            reply = dict(row)
-            reply["id"] = str(reply["id"])
-            reply["topic_id"] = str(reply["topic_id"])
-            result.setdefault(reply["topic_id"], []).append(reply)
+            for row in rows:
+                reply = dict(row)
+                reply["id"] = str(reply["id"])
+                reply["topic_id"] = str(reply["topic_id"])
+                result.setdefault(reply["topic_id"], []).append(reply)
         return result
 
     def get_all_topics(self) -> list[dict[str, Any]]:

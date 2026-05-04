@@ -12,6 +12,7 @@ def get_config():
     return ConfigResponse(
         maptiler_key=settings.maptiler_key,
         map_source=settings.map_source,
+        debug_enabled=settings.debug_enabled,
         debug_info={
             "env_file_found": bool(settings.env_path),
             "maptiler_key_configured": has_maptiler_key,

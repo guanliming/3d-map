@@ -49,13 +49,19 @@ html, body, #app {
             backdrop-filter: grayscale(0.55) saturate(0.68) contrast(1.08) brightness(0.84);
         }
         .maplibregl-marker {
-            z-index: 5;
+            z-index: 10;
+        }
+        .maplibregl-marker.scenic-marker {
+            z-index: 15 !important;
         }
         .maplibregl-marker.topic-marker-layer,
         .maplibregl-marker:has(.topic-marker) {
-            z-index: 20 !important;
+            z-index: 25 !important;
         }
         .maplibregl-popup.topic-popup-layer {
+            z-index: 35 !important;
+        }
+        .maplibregl-popup.scenic-popup-layer {
             z-index: 30 !important;
         }
         .fog-unlock-canvas {
@@ -73,12 +79,12 @@ html, body, #app {
             mix-blend-mode: multiply;
         }
         .marker-icon {
-            width: 38px;
-            height: 38px;
-            background: linear-gradient(135deg, rgba(71, 85, 105, 0.92), rgba(148, 163, 184, 0.88));
-            border: 1px solid rgba(255,255,255,0.55);
-            border-radius: 14px;
-            box-shadow: 0 8px 22px rgba(15, 23, 42, 0.28), inset 0 1px 0 rgba(255,255,255,0.32);
+            width: 40px;
+            height: 40px;
+            background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            border: 2px solid rgba(255,255,255,0.7);
+            border-radius: 50%;
+            box-shadow: 0 6px 16px rgba(245, 158, 11, 0.4), inset 0 2px 4px rgba(255,255,255,0.3);
             display: flex;
             align-items: center;
             justify-content: center;
@@ -89,14 +95,14 @@ html, body, #app {
         .marker-icon::after {
             content: '';
             position: absolute;
+            bottom: -6px;
             left: 50%;
-            bottom: -7px;
-            width: 14px;
-            height: 14px;
-            background: rgba(100, 116, 139, 0.92);
-            border-right: 1px solid rgba(255,255,255,0.45);
-            border-bottom: 1px solid rgba(255,255,255,0.45);
-            transform: translateX(-50%) rotate(45deg);
+            transform: translateX(-50%);
+            width: 0;
+            height: 0;
+            border-left: 8px solid transparent;
+            border-right: 8px solid transparent;
+            border-top: 10px solid #d97706;
         }
         .marker-icon:hover {
             transform: translateY(-2px) scale(1.08);
@@ -525,8 +531,8 @@ html, body, #app {
         }
         
         .topic-bubble {
-            background: linear-gradient(135deg, rgba(88, 28, 135, 0.96) 0%, rgba(219, 39, 119, 0.94) 100%);
-            border: 1px solid rgba(251, 207, 232, 0.88);
+            background: linear-gradient(135deg, rgba(88, 28, 135, 0.7) 0%, rgba(219, 39, 119, 0.7) 100%);
+            border: 1px solid rgba(251, 207, 232, 0.7);
             border-radius: 16px;
             padding: 8px 14px 8px 8px;
             color: white;
@@ -540,7 +546,7 @@ html, body, #app {
             display: flex;
             align-items: center;
             gap: 9px;
-            --topic-tail-color: rgba(219, 39, 119, 0.94);
+            --topic-tail-color: rgba(219, 39, 119, 0.7);
         }
 
         .topic-bubble::after {
@@ -593,18 +599,18 @@ html, body, #app {
         }
         
         .topic-bubble.today {
-            background: linear-gradient(135deg, rgba(124, 45, 18, 0.96) 0%, rgba(249, 115, 22, 0.94) 100%);
-            --topic-tail-color: rgba(249, 115, 22, 0.94);
+            background: linear-gradient(135deg, rgba(124, 45, 18, 0.7) 0%, rgba(249, 115, 22, 0.7) 100%);
+            --topic-tail-color: rgba(249, 115, 22, 0.7);
         }
-        
+
         .topic-bubble.three-days {
-            background: linear-gradient(135deg, rgba(8, 47, 73, 0.96) 0%, rgba(14, 165, 233, 0.94) 100%);
-            --topic-tail-color: rgba(14, 165, 233, 0.94);
+            background: linear-gradient(135deg, rgba(8, 47, 73, 0.7) 0%, rgba(14, 165, 233, 0.7) 100%);
+            --topic-tail-color: rgba(14, 165, 233, 0.7);
         }
-        
+
         .topic-bubble.seven-days {
-            background: linear-gradient(135deg, rgba(20, 83, 45, 0.96) 0%, rgba(34, 197, 94, 0.9) 100%);
-            --topic-tail-color: rgba(34, 197, 94, 0.9);
+            background: linear-gradient(135deg, rgba(20, 83, 45, 0.7) 0%, rgba(34, 197, 94, 0.7) 100%);
+            --topic-tail-color: rgba(34, 197, 94, 0.7);
         }
 
         .topic-bubble.new {
@@ -770,6 +776,10 @@ html, body, #app {
             min-width: 0;
         }
 
+        .topic-replies-hidden {
+            display: none;
+        }
+
         .topic-reply-empty {
             color: #94a3b8;
             font-size: 12px;
@@ -785,12 +795,26 @@ html, body, #app {
             display: -webkit-box;
             -webkit-line-clamp: 3;
             -webkit-box-orient: vertical;
+            margin-bottom: 8px;
+        }
+
+        .topic-reply-image {
+            max-width: 100%;
+            max-height: 150px;
+            border-radius: 8px;
+            margin-top: 6px;
+            display: block;
         }
 
         .topic-reply-name {
             color: #2563eb;
             font-weight: 700;
             margin-right: 4px;
+            cursor: pointer;
+        }
+
+        .topic-reply-name:hover {
+            text-decoration: underline;
         }
 
         .topic-replies-toggle {
@@ -833,6 +857,58 @@ html, body, #app {
             cursor: pointer;
             font-size: 12px;
             white-space: nowrap;
+        }
+
+        .topic-reply-image-btn {
+            border: none;
+            border-radius: 999px;
+            padding: 7px 8px;
+            background: #f1f5f9;
+            cursor: pointer;
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+
+        .topic-reply-image-btn:hover {
+            background: #e2e8f0;
+        }
+
+        .topic-reply-image-preview {
+            margin-top: 8px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        .reply-image-preview-item {
+            position: relative;
+            width: 60px;
+            height: 60px;
+            border-radius: 8px;
+            overflow: hidden;
+        }
+
+        .reply-image-preview-item img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .reply-image-remove {
+            position: absolute;
+            top: 2px;
+            right: 2px;
+            width: 18px;
+            height: 18px;
+            border: none;
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.6);
+            color: white;
+            font-size: 12px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
         }
         
         .create-topic-modal {
@@ -1096,6 +1172,12 @@ html, body, #app {
 
         .layer-toggle input {
             accent-color: #38bdf8;
+        }
+
+        .layer-toggle-divider {
+            height: 1px;
+            background: rgba(255,255,255,0.2);
+            margin: 8px 0;
         }
 
         .topic-bubble.heat-point {

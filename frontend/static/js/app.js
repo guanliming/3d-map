@@ -3,6 +3,7 @@ let map;
         let currentPanorama = null;
         let currentZoomHintTimeout = null;
         let debugMode = false;
+        let debugEnabled = false;
         let debugLogsEnabled = false;
         let mapTilerKey = '';
         let mapSourcePreference = 'auto';
@@ -1551,7 +1552,21 @@ let map;
             const east = bounds.getEast();
             const south = bounds.getSouth();
             const north = bounds.getNorth();
-            return unlockedFogCells.filter(cell => getCellBoundaryForMap(cell).some(([lon, lat]) => lon >= west && lon <= east && lat >= south && lat <= north));
+
+            if (!isGcj02MapSource()) {
+                return unlockedFogCells.filter(cell => cell.boundary && cell.boundary.some(([lon, lat]) => lon >= west && lon <= east && lat >= south && lat <= north));
+            }
+
+            return unlockedFogCells.filter(cell => {
+                if (!cell.boundary) return false;
+                for (const [lon, lat] of cell.boundary) {
+                    const converted = wgs84ToGcj02(lat, lon);
+                    if (converted.lon >= west && converted.lon <= east && converted.lat >= south && converted.lat <= north) {
+                        return true;
+                    }
+                }
+                return false;
+            });
         }
 
         function compactFogCellsForRender(cells) {
@@ -1561,10 +1576,12 @@ let map;
                 const compactIndexes = window.h3.compactCells(cells.map(cell => cell.h3_index));
                 return compactIndexes.map(h3Index => {
                     const existing = byIndex.get(h3Index);
-                    if (existing) return existing;
+                    if (existing) {
+                        return convertCellBoundaryToGcj02(existing);
+                    }
                     if (typeof window.h3.cellToBoundary !== 'function') return null;
                     const boundary = window.h3.cellToBoundary(h3Index).map(([lat, lon]) => [lon, lat]);
-                    return { h3_index: h3Index, boundary, unlock_type: 'gps_adjacent' };
+                    return convertCellBoundaryToGcj02({ h3_index: h3Index, boundary, unlock_type: 'gps_adjacent' });
                 }).filter(Boolean);
             } catch (error) {
                 log('h3-js compactCells 不可用，使用原始格子:', error.message);
@@ -1651,7 +1668,7 @@ let map;
                 ctx.shadowColor = 'white';
                 ctx.shadowBlur = 10;
                 for (const cell of renderCells) {
-                    const points = getCellBoundaryForMap(cell).map(([lon, lat]) => map.project([lon, lat]));
+                    const points = cell.boundary.map(([lon, lat]) => map.project([lon, lat]));
                     if (!points.length) continue;
                     ctx.beginPath();
                     points.forEach((point, index) => {
@@ -1714,11 +1731,11 @@ let map;
                 ctx.clearRect(0, 0, width, height);
                 ctx.fillStyle = 'rgba(2, 6, 23, 0.72)';
                 ctx.fillRect(0, 0, width, height);
-                const cells = getVisibleFogCells().slice(0, 900);
+                const cells = compactFogCellsForRender(getVisibleFogCells()).slice(0, 900);
                 ctx.globalCompositeOperation = 'destination-out';
                 ctx.fillStyle = 'rgba(255,255,255,0.82)';
                 for (const cell of cells) {
-                    const points = getCellBoundaryForMap(cell).map(([lon, lat]) => map.project([lon, lat]));
+                    const points = cell.boundary.map(([lon, lat]) => map.project([lon, lat]));
                     if (!points.length) continue;
                     ctx.beginPath();
                     points.forEach((point, index) => index === 0 ? ctx.moveTo(point.x, point.y) : ctx.lineTo(point.x, point.y));
@@ -2004,17 +2021,18 @@ let map;
             try {
                 log('正在从 /api/config 加载配置...');
                 setMapStatus('加载配置...');
-                
+
                 const response = await fetch('/api/config');
                 if (!response.ok) {
                     log('配置 API 返回状态:', response.status);
                     setMapStatus('配置加载失败', 'warning');
                     return { maptiler_key: '', map_source: 'auto' };
                 }
-                
+
                 const config = await response.json();
                 mapTilerKey = config.maptiler_key || '';
-                
+                debugEnabled = config.debug_enabled || false;
+
                 if (config.debug_info) {
                     log('后端调试信息:', {
                         envFileFound: config.debug_info.env_file_found,
@@ -2024,12 +2042,13 @@ let map;
                         envPath: config.debug_info.env_path
                     });
                 }
-                
-                log('前端配置加载完成:', { 
-                    hasKey: !!mapTilerKey, 
-                    keyLength: mapTilerKey ? mapTilerKey.length : 0
+
+                log('前端配置加载完成:', {
+                    hasKey: !!mapTilerKey,
+                    keyLength: mapTilerKey ? mapTilerKey.length : 0,
+                    debugEnabled: debugEnabled
                 });
-                
+
                 updateDebugPanel();
                 return config;
             } catch (error) {
@@ -2049,6 +2068,16 @@ let map;
             setMapStatus('正在初始化...');
             
             const config = await loadConfig();
+
+            if (debugEnabled) {
+                document.getElementById('debugLayerDivider').style.display = 'block';
+                document.getElementById('debugLayerToggle').style.display = 'flex';
+            } else {
+                document.getElementById('debugLayerDivider').style.display = 'none';
+                document.getElementById('debugLayerToggle').style.display = 'none';
+                document.getElementById('toggleDebugBtn').style.display = 'none';
+            }
+
             const { style, styleName } = resolveMapStyle(config);
             setMapStatus(`加载 ${styleName} 地图...`);
 
@@ -2766,13 +2795,13 @@ let map;
 
         function addMarker(spot) {
             const el = document.createElement('div');
-            el.className = 'marker';
-            
+            el.className = 'marker scenic-marker';
+
             const markerIcon = document.createElement('div');
             markerIcon.className = 'marker-icon';
             markerIcon.innerHTML = `<span class="inner">${getScenicIconSvg()}</span>`;
             el.appendChild(markerIcon);
-            
+
             const marker = new maplibregl.Marker(el)
                 .setLngLat([spot.lon, spot.lat])
                 .addTo(map);
@@ -2781,7 +2810,7 @@ let map;
                 event.stopPropagation();
                 openSpotPopup(spot);
             });
-            
+
             markers.push(marker);
             log('标记已添加到地图:', spot.name);
             updateDebugPanel();
@@ -2916,6 +2945,17 @@ let map;
             toggleTopicLayer(nextValue);
         }
 
+        function toggleDebugMode(checked) {
+            debugMode = checked;
+            debugLogsEnabled = checked;
+            const panel = document.getElementById('debugPanel');
+            const btn = document.getElementById('toggleDebugBtn');
+            if (panel) panel.style.display = checked ? 'block' : 'none';
+            if (btn) btn.textContent = checked ? '🔧 隐藏调试' : '🔧 调试';
+            if (checked) updateDebugPanel();
+            log('调试模式:', checked ? '开启' : '关闭');
+        }
+
         function getAgeCategoryLabel(category) {
             switch (category) {
                 case 'today': return '今天';
@@ -3020,26 +3060,38 @@ let map;
             }
             const collapsed = replies.length > 3;
             const visibleReplies = collapsed ? replies.slice(0, 3) : replies;
+
+            function renderReplyItem(reply) {
+                const imageHtml = reply.image_url ? `<img class="topic-reply-image" src="${escapeHtml(reply.image_url)}" alt="图片" />` : '';
+                return `
+                    <div class="topic-reply-item">
+                        <span class="topic-reply-name" onclick="replyToUser('${topic.id}', '${escapeHtml(reply.user_name)}')">${escapeHtml(reply.user_name)}</span>
+                        <span class="topic-reply-content">${escapeHtml(reply.content)}</span>
+                        ${imageHtml}
+                    </div>
+                `;
+            }
+
             return `
-                <div id="topicReplies-${topic.id}" class="topic-replies ${collapsed ? 'collapsed' : ''}">
-                    ${visibleReplies.map(reply => `
-                        <div class="topic-reply-item">
-                            <span class="topic-reply-name">${escapeHtml(reply.user_name)}</span>
-                            <span class="topic-reply-content">${escapeHtml(reply.content)}</span>
+                <div id="topicReplies-${topic.id}" class="topic-replies">
+                    <div class="topic-replies-visible">
+                        ${visibleReplies.map(renderReplyItem).join('')}
+                    </div>
+                    ${collapsed ? `
+                        <div id="topicRepliesHidden-${topic.id}" class="topic-replies-hidden">
+                            ${replies.slice(3).map(renderReplyItem).join('')}
                         </div>
-                    `).join('')}
-                    ${collapsed ? `<button class="topic-replies-toggle" onclick="toggleTopicReplies('${topic.id}')">展开全部 ${replies.length} 条回复</button>` : ''}
-                    <template id="topicRepliesAll-${topic.id}">
-                        ${replies.map(reply => `
-                            <div class="topic-reply-item">
-                                <span class="topic-reply-name">${escapeHtml(reply.user_name)}</span>
-                                <span class="topic-reply-content">${escapeHtml(reply.content)}</span>
-                            </div>
-                        `).join('')}
-                        <button class="topic-replies-toggle" onclick="toggleTopicReplies('${topic.id}', true)">收起回复</button>
-                    </template>
+                        <button class="topic-replies-toggle" id="topicRepliesExpandBtn-${topic.id}" onclick="toggleTopicReplies('${topic.id}')">展开全部 ${replies.length} 条回复</button>
+                    ` : ''}
                 </div>
             `;
+        }
+
+        function replyToUser(topicId, userName) {
+            const input = document.getElementById(`topicReplyInput-${topicId}`);
+            if (!input) return;
+            input.value = `@${userName} `;
+            input.focus();
         }
 
         function buildTopicPopupContent(topic) {
@@ -3063,9 +3115,12 @@ let map;
                         ${renderTopicReplies(topic)}
                     </div>
                     <div class="topic-reply-form">
+                        <input type="file" id="topicReplyImage-${topic.id}" class="topic-reply-image-input" accept="image/*" capture="environment" onchange="previewTopicReplyImage('${topic.id}', event)" style="display: none;" />
+                        <button type="button" class="topic-reply-image-btn" onclick="document.getElementById('topicReplyImage-${topic.id}').click()">📷</button>
                         <input id="topicReplyInput-${topic.id}" class="topic-reply-input" type="text" maxlength="300" placeholder="回复 ${escapeHtml(topic.user_name)}..." />
                         <button class="topic-reply-submit" onclick="submitTopicReply('${topic.id}')">发送</button>
                     </div>
+                    <div id="topicReplyImagePreview-${topic.id}" class="topic-reply-image-preview"></div>
                 </div>
             `;
         }
@@ -3125,14 +3180,13 @@ let map;
 
             el.addEventListener('click', () => recordTopicClick(topic.id), { once: true });
 
-            if (topicMarkers.length < 3) {
-                setTimeout(() => {
-                    if (map && marker.getElement().isConnected && !marker.getPopup().isOpen()) {
-                        marker.togglePopup();
-                    }
-                }, 180 + topicMarkers.length * 120);
-            }
-            
+            // 悬停时显示 popup
+            el.addEventListener('mouseenter', () => {
+                if (map && marker.getElement().isConnected) {
+                    marker.togglePopup();
+                }
+            });
+
             topicMarkers.push(marker);
             log('话题标记已添加:', topic.user_name, '- 距离:', Math.round(topic.distance), 'm, 透明度:', topic.opacity);
         }
@@ -3326,29 +3380,116 @@ let map;
             }
         }
 
-        function toggleTopicReplies(topicId, collapse = false) {
-            const container = document.getElementById(`topicReplies-${topicId}`);
-            const template = document.getElementById(`topicRepliesAll-${topicId}`);
-            if (!container || !template) return;
-            if (collapse) {
-                loadTopics();
+        function toggleTopicReplies(topicId) {
+            const hiddenDiv = document.getElementById(`topicRepliesHidden-${topicId}`);
+            const expandBtn = document.getElementById(`topicRepliesExpandBtn-${topicId}`);
+            if (!hiddenDiv || !expandBtn) return;
+
+            const isHidden = hiddenDiv.classList.contains('topic-replies-hidden');
+
+            if (isHidden) {
+                // 展开
+                hiddenDiv.classList.remove('topic-replies-hidden');
+                expandBtn.textContent = '收起回复';
+                expandBtn.onclick = () => toggleTopicReplies(topicId);
+            } else {
+                // 收起
+                hiddenDiv.classList.add('topic-replies-hidden');
+                expandBtn.textContent = expandBtn.textContent.replace('收起回复', '').replace('展开全部', '展开全部');
+                const topic = topicData.find(t => t.id === topicId);
+                if (topic && topic.replies) {
+                    expandBtn.textContent = `展开全部 ${topic.replies.length} 条回复`;
+                }
+                expandBtn.onclick = () => toggleTopicReplies(topicId);
+            }
+        }
+
+        function previewTopicReplyImage(topicId, event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const preview = document.getElementById(`topicReplyImagePreview-${topicId}`);
+            if (!preview) return;
+
+            if (file.size > 5 * 1024 * 1024) {
+                showToast('图片大小不能超过5MB');
+                event.target.value = '';
                 return;
             }
-            container.innerHTML = template.innerHTML;
-            container.classList.remove('collapsed');
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                preview.innerHTML = `
+                    <div class="reply-image-preview-item">
+                        <img src="${e.target.result}" alt="预览" />
+                        <button type="button" class="reply-image-remove" onclick="removeTopicReplyImage('${topicId}')">×</button>
+                    </div>
+                `;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        function removeTopicReplyImage(topicId) {
+            const input = document.getElementById(`topicReplyImage-${topicId}`);
+            const preview = document.getElementById(`topicReplyImagePreview-${topicId}`);
+            if (input) input.value = '';
+            if (preview) preview.innerHTML = '';
+        }
+
+        async function uploadReplyImage(topicId) {
+            const input = document.getElementById(`topicReplyImage-${topicId}`);
+            const file = input?.files[0];
+            if (!file) return null;
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                const response = await fetch('/api/upload/image', {
+                    method: 'POST',
+                    body: formData
+                });
+                if (!response.ok) {
+                    throw new Error('上传失败');
+                }
+                const data = await response.json();
+                return data.url;
+            } catch (error) {
+                log('上传图片失败:', error);
+                showToast('图片上传失败');
+                return null;
+            }
         }
 
         async function submitTopicReply(topicId) {
             const input = document.getElementById(`topicReplyInput-${topicId}`);
             if (!input) return;
             const content = input.value.trim();
-            if (!content) {
-                showToast('请输入回复内容');
+
+            const imageInput = document.getElementById(`topicReplyImage-${topicId}`);
+            const hasImage = imageInput && imageInput.files[0];
+
+            // 必须有文字或图片
+            if (!content && !hasImage) {
+                showToast('请输入回复内容或上传图片');
                 return;
             }
+
             const headers = { 'Content-Type': 'application/json' };
             if (authToken) headers['Authorization'] = `Bearer ${authToken}`;
-            const body = { content };
+
+            let imageUrl = null;
+            if (hasImage) {
+                imageUrl = await uploadReplyImage(topicId);
+                if (!imageUrl && !content) {
+                    showToast('图片上传失败，请重试');
+                    return;
+                }
+            }
+
+            const body = {};
+            if (content) body.content = content;
+            if (imageUrl) body.image_url = imageUrl;
             if (!authUser) {
                 const name = prompt('请输入您的昵称');
                 if (!name || !name.trim()) return;
@@ -3365,6 +3506,7 @@ let map;
                     return;
                 }
                 input.value = '';
+                removeTopicReplyImage(topicId);
                 showToast('回复成功');
                 loadTopics();
             } catch (error) {

@@ -43,6 +43,7 @@ class Settings(BaseModel):
     jwt_algorithm: str = "HS256"
     cors_origins: list[str] = ["*"]
     env_path: str | None = str(ENV_PATH) if ENV_PATH else None
+    debug_enabled: bool = os.getenv("DEBUG_ENABLED", "false").strip().lower() == "true"
 
 
 settings = Settings()

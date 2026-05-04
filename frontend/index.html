@@ -6,7 +6,7 @@
     <title>3D 地图 - 景点探索</title>
     <link href="/static/vendor/maplibre-gl/maplibre-gl.css" rel="stylesheet" />
     <script src="/static/vendor/maplibre-gl/maplibre-gl.js"></script>
-    <link rel="stylesheet" href="/static/css/app.css?v=topic-moments-17" />
+    <link rel="stylesheet" href="/static/css/app.css?v=topic-opacity-18" />
 </head>
 <body>
     <div id="app">
@@ -152,7 +152,7 @@
             <span id="userIndicatorText" class="user-indicator-text">登录</span>
         </div>
 
-        <div class="layer-panel">
+        <div class="layer-panel" id="layerPanel">
             <div class="layer-title">图层</div>
             <label class="layer-toggle">
                 <input id="scenicLayerCheckbox" type="checkbox" checked onchange="toggleScenicLayer(this.checked)" />
@@ -161,6 +161,11 @@
             <label class="layer-toggle">
                 <input id="topicLayerCheckbox" type="checkbox" checked onchange="toggleTopicLayer(this.checked)" />
                 <span>实时话题</span>
+            </label>
+            <div class="layer-toggle-divider" id="debugLayerDivider" style="display: none;"></div>
+            <label class="layer-toggle" id="debugLayerToggle" style="display: none;">
+                <input id="debugLayerCheckbox" type="checkbox" onchange="toggleDebugMode(this.checked)" />
+                <span>调试信息</span>
             </label>
         </div>
         

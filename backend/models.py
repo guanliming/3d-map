@@ -73,6 +73,7 @@ class WeatherResponse(BaseModel):
 class ConfigResponse(BaseModel):
     maptiler_key: str
     map_source: str = "auto"
+    debug_enabled: bool = False
     debug_info: dict[str, Any]
 
 
@@ -140,7 +141,8 @@ class TopicCreate(BaseModel):
 
 class TopicReplyCreate(BaseModel):
     user_name: str | None = Field(None, max_length=50, description="回复昵称（未登录时必填）")
-    content: str = Field(..., min_length=1, max_length=300, description="回复内容")
+    content: str | None = Field(None, min_length=1, max_length=300, description="回复内容")
+    image_url: str | None = Field(None, description="回复图片URL")
 
 
 class TopicReply(BaseModel):
@@ -148,6 +150,7 @@ class TopicReply(BaseModel):
     topic_id: str
     user_name: str
     content: str
+    image_url: str | None = None
     created_at: datetime
 
 
